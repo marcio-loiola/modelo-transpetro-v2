@@ -1,0 +1,21 @@
+# ==============================================================================
+# Render.com deployment configuration
+# ==============================================================================
+services:
+  - type: web
+    name: biofouling-api
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.0
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
