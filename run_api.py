@@ -12,11 +12,11 @@ from api.config import settings
 
 if __name__ == "__main__":
     print("=" * 60)
-    print(f"🚀 Starting {settings.APP_NAME}")
+    print(f"Starting {settings.APP_NAME}")
     print("=" * 60)
-    print(f"📍 URL: http://{settings.HOST}:{settings.PORT}")
-    print(f"📚 Docs: http://{settings.HOST}:{settings.PORT}/docs")
-    print(f"📖 ReDoc: http://{settings.HOST}:{settings.PORT}/redoc")
+    print(f"URL: http://{settings.HOST}:{settings.PORT}")
+    print(f"Docs: http://{settings.HOST}:{settings.PORT}/docs")
+    print(f"ReDoc: http://{settings.HOST}:{settings.PORT}/redoc")
     print("=" * 60)
     
     uvicorn.run(

@@ -65,6 +65,67 @@ async def list_ships(
 
 
 @router.get(
+    "/fleet/summary",
+    response_model=FleetSummary,
+    summary="Get fleet summary",
+    description="Get fleet-wide biofouling statistics"
+)
+async def get_fleet_summary(
+    service: DataService = Depends(get_data_service)
+) -> FleetSummary:
+    """
+    Get fleet-wide biofouling summary statistics.
+    """
+    try:
+        summary_df = service.get_ship_summary()
+        
+        if summary_df.empty:
+            raise HTTPException(
+                status_code=404,
+                detail="Summary data not available"
+            )
+        
+        ships = []
+        for _, row in summary_df.iterrows():
+            ships.append(ShipSummary(
+                ship_name=row['shipName'],
+                num_events=int(row.get('num_events', 0)),
+                avg_excess_ratio=float(row.get('avg_excess_ratio', 0)),
+                max_excess_ratio=float(row.get('max_excess_ratio', 0)),
+                avg_bio_index=float(row.get('avg_bio_index', 0)),
+                max_bio_index=float(row.get('max_bio_index', 0)),
+                total_baseline_fuel=float(row.get('total_baseline_fuel', 0)),
+                total_real_fuel=float(row.get('total_real_fuel', 0)),
+                total_additional_fuel=float(row.get('total_additional_fuel', 0)) if 'total_additional_fuel' in row else None,
+                total_additional_cost_usd=float(row.get('total_additional_cost_usd', 0)) if 'total_additional_cost_usd' in row else None,
+                total_additional_co2=float(row.get('total_additional_co2', 0)) if 'total_additional_co2' in row else None,
+            ))
+        
+        # Calculate fleet totals
+        total_events = sum(s.num_events for s in ships)
+        fleet_avg_bio = sum(s.avg_bio_index * s.num_events for s in ships) / max(total_events, 1)
+        fleet_additional_fuel = sum(s.total_additional_fuel or 0 for s in ships)
+        fleet_additional_cost = sum(s.total_additional_cost_usd or 0 for s in ships)
+        fleet_additional_co2 = sum(s.total_additional_co2 or 0 for s in ships)
+        
+        return FleetSummary(
+            total_ships=len(ships),
+            total_events=total_events,
+            fleet_avg_bio_index=round(fleet_avg_bio, 2),
+            fleet_total_additional_fuel=round(fleet_additional_fuel, 2),
+            fleet_total_additional_cost_usd=round(fleet_additional_cost, 2),
+            fleet_total_additional_co2=round(fleet_additional_co2, 2),
+            ships=ships
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting fleet summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
     "/{ship_name}",
     response_model=ShipInfo,
     summary="Get ship details",
@@ -154,65 +215,4 @@ async def get_ship_summary(
         raise
     except Exception as e:
         logger.error(f"Error getting ship summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get(
-    "/fleet/summary",
-    response_model=FleetSummary,
-    summary="Get fleet summary",
-    description="Get fleet-wide biofouling statistics"
-)
-async def get_fleet_summary(
-    service: DataService = Depends(get_data_service)
-) -> FleetSummary:
-    """
-    Get fleet-wide biofouling summary statistics.
-    """
-    try:
-        summary_df = service.get_ship_summary()
-        
-        if summary_df.empty:
-            raise HTTPException(
-                status_code=404,
-                detail="Summary data not available"
-            )
-        
-        ships = []
-        for _, row in summary_df.iterrows():
-            ships.append(ShipSummary(
-                ship_name=row['shipName'],
-                num_events=int(row.get('num_events', 0)),
-                avg_excess_ratio=float(row.get('avg_excess_ratio', 0)),
-                max_excess_ratio=float(row.get('max_excess_ratio', 0)),
-                avg_bio_index=float(row.get('avg_bio_index', 0)),
-                max_bio_index=float(row.get('max_bio_index', 0)),
-                total_baseline_fuel=float(row.get('total_baseline_fuel', 0)),
-                total_real_fuel=float(row.get('total_real_fuel', 0)),
-                total_additional_fuel=float(row.get('total_additional_fuel', 0)) if 'total_additional_fuel' in row else None,
-                total_additional_cost_usd=float(row.get('total_additional_cost_usd', 0)) if 'total_additional_cost_usd' in row else None,
-                total_additional_co2=float(row.get('total_additional_co2', 0)) if 'total_additional_co2' in row else None,
-            ))
-        
-        # Calculate fleet totals
-        total_events = sum(s.num_events for s in ships)
-        fleet_avg_bio = sum(s.avg_bio_index * s.num_events for s in ships) / max(total_events, 1)
-        fleet_additional_fuel = sum(s.total_additional_fuel or 0 for s in ships)
-        fleet_additional_cost = sum(s.total_additional_cost_usd or 0 for s in ships)
-        fleet_additional_co2 = sum(s.total_additional_co2 or 0 for s in ships)
-        
-        return FleetSummary(
-            total_ships=len(ships),
-            total_events=total_events,
-            fleet_avg_bio_index=round(fleet_avg_bio, 2),
-            fleet_total_additional_fuel=round(fleet_additional_fuel, 2),
-            fleet_total_additional_cost_usd=round(fleet_additional_cost, 2),
-            fleet_total_additional_co2=round(fleet_additional_co2, 2),
-            ships=ships
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting fleet summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))

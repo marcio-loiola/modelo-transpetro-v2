@@ -442,13 +442,17 @@ class DataService:
         """Load the ship summary report from CSV or database."""
         # Try CSV first
         path = settings.DATA_PROCESSED_DIR / "biofouling_summary_by_ship.csv"
+        logger.info(f"Attempting to load summary from: {path.absolute()}")
         if path.exists():
             try:
                 df = pd.read_csv(path)
+                logger.info(f"Loaded summary CSV. Shape: {df.shape}")
                 if not df.empty:
                     return df
             except Exception as e:
-                logger.warning(f"Error loading CSV summary: {e}")
+                logger.error(f"Error loading CSV summary from {path}: {e}")
+        else:
+            logger.warning(f"Summary CSV not found at: {path.absolute()}")
         
         # Generate summary from database records
         try:

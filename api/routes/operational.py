@@ -6,8 +6,8 @@ import pandas as pd
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from ...src.models import load_model
-from ...src.pipeline import prepare_and_predict
+from src.models import load_model
+from src.pipeline import prepare_and_predict
 from ..ocean_cache import ocean_cache
 from ..config import settings
 from ..schemas import (
