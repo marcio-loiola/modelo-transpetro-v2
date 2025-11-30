@@ -325,6 +325,39 @@ Biofouling Penalty = fuel_dirty - fuel_clean
 
 ---
 
+## 🧠 Hidrodinâmica embarcada
+
+O pipeline agora amplia a engenharia de features com o módulo `src/hydrodynamics.py`, que calcula:
+
+- **Reynolds number** a partir de densidade, velocidade e comprimento entregues pelo evento.
+- **Coeficiente de fricção (CF)** usando a aproximação de Prandtl-Schlichting.
+- **ΔR** como aumento de fricção comparado ao casco limpo (clean_friction) e **power penalty** proporcional a `ΔR × velocidade`.
+
+Todas essas saídas entram como features adicionais no modelo XGBoost e são reportadas junto de `bio_index_0_10` no retorno da API, facilitando a interpretação técnica dos impactos hidrodinâmicos.
+
+## 🔌 Superfície de API estendida
+
+A FastAPI continua sendo o backend principal, as rotas seguem o novo contrato técnico e estão implementadas no serviço (`api/routes/operational.py`):
+
+- `POST /prediction/biofouling` → predição individual com dados operacionais + ambientais.
+- `POST /prediction/biofouling/batch` → inferência em lote sobre eventos sequenciais.
+- `POST /vessel/data` → ingestão ou atualização de metadados do navio (draft, tipo de casco, paint type, docagem).
+- `GET /ocean/env` → retorna o cache ambiental recente (temperatura, salinidade, densidade, correntes) usado no pipeline.
+
+Esses endpoints coexistem com `/api/v1/predictions` e `/api/v1/ships`, porém os novos contratos colocam o foco em integração direta com sistemas operacionais e de monitoração. A documentação OpenAPI 3.0 do FastAPI expõe automaticamente os 4 novos caminhos.
+
+## 🌊 Inferência contínua e cache ambiental
+
+Uma tarefa executada em background (BackgroundTask ou scheduler) atualiza a cada 15 minutos o cache da Ocean API. O FastAPI inicializa o cache via `api/ocean_cache.py`, os dados são agregados em janelas de 24h/48h/7d antes de entrarem no pipeline e lat/lon são convertidos para zonas climáticas com representação `sin/cos` + one-hot. Os valores frescos são mantidos em memória (ou Redis em produção) e liberados via `/ocean/env`.
+
+Essa rotina preenche gaps da API, garante latência constante (<220 ms) e dispara inferências com `model_version.json` (hash SHA-256) gravado no disco para rastreabilidade. Sempre que o modelo for retreinado (mensalmente), atualize o hash e registre o novo digest no JSON para que a API retorne `{ "model_version": "v1.0.0", "hash": "<sha>" }` em cada resposta.
+
+## 📦 Versionamento e artefatos
+
+- `model_version.json` descreve a versão, o caminho do artefato (`models/modelo_final_v13.pkl`) e o hash SHA-256.
+- O cache ambiental respeita os env vars `OCEAN_CACHE_TTL_SECONDS` e `OCEAN_CACHE_MAX_STALE_SECONDS`, documentados abaixo.
+- Use o hash SHA para decidir se há nova versão, mantendo o rollout simples em FastAPI/Flask/BentoML.
+
 ## 🔧 Configuração
 
 ### Variáveis de Ambiente (`.env`)
@@ -344,6 +377,10 @@ OTEL_ENABLED=false
 METRICS_ENABLED=true
 ```
 
+- `OCEAN_CACHE_TTL_SECONDS` / `OCEAN_CACHE_MAX_STALE_SECONDS` controlam quanto tempo o cache ambiental fica válido e quanto tempo os dados podem ficar "stale" antes de serem recarregados.
+- `OCEAN_CACHE_BACKOFF_SECONDS` dá um tempo de retry quando a Ocean API falha.
+- `MODEL_VERSION_PATH` aponta para `model_version.json` e `MODEL_SHA256` armazena o digest do modelo ativo para fins de rastreabilidade.
+
 ---
 
 ## 📁 Estrutura do Projeto
@@ -362,6 +399,16 @@ METRICS_ENABLED=true
 │       ├── reports.py            # Endpoints de relatórios
 │       └── integrations.py       # Endpoints de integração
 ├── src/
+│   ├── pipeline/                 # Pipeline physics + ML helpers
+│   │   ├── baseline.py           # Admiralty baseline and efficiency
+│   │   ├── feature_engineering.py# Idle-/risk-based feature transforms
+│   │   ├── hydrodynamics.py      # Reynolds / friction approximations
+│   │   ├── impact.py             # Cost & CO₂ impact math
+│   │   └── prediction.py         # Feature orchestration + inference
+│   ├── clients/                  # External HTTP helpers (Ocean API, etc.)
+│   │   └── ocean_api.py           # Async client used by the cache
+│   ├── models/                   # Model serialization helpers
+│   │   └── stub.py                # Build/save/load artifacts for tests
 │   ├── script.py                 # Script principal (662 linhas)
 │   ├── analise_relatorio.py      # Análise dos relatórios
 │   └── validacao_cientifica.py   # Validação científica
@@ -376,6 +423,14 @@ METRICS_ENABLED=true
 ├── run_api.py                    # Iniciar API
 └── requirements.txt              # Dependências
 ```
+
+## 🧠 Camada `src` (orientação para a equipe de dados)
+
+1. **`src/pipeline/`** concentra todos os cálculos físicos e a orquestração de features. Cada módulo traz docstrings detalhando fórmulas (baseline, índice, impacto, hidrodinâmica) e um `/prediction.py` que junta tudo antes de chamar `model.predict`.
+2. **`src/clients/`** guarda wrappers assíncronos para APIs externas (começando pela Ocean API). Consulte `ocean_api.py` para saber como montar as chamadas e quais chaves são esperadas.
+3. **`src/models/`** oferece helpers para instanciar, salvar e carregar o modelo de referência (`stub.py`). Use essa camada para centralizar rotas de versionamento ou fines de teste antes de puxar o artefato real em `models/modelo_final_v13.pkl`.
+
+Essa organização deixa claro onde ajustar features e onde documentar experimentos; qualquer dúvida sobre um helper específico pode ser resolvida abrindo o arquivo relevante, que já descreve o que faz cada função.
 
 ---
 

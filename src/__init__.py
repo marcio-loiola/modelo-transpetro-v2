@@ -1,0 +1,1 @@
+"""Pacote raiz que expõe as subcamadas de pipeline, clients e models."""
