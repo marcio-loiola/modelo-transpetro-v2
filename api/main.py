@@ -16,7 +16,9 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .schemas import HealthCheck, ModelInfo, FeatureImportance
 from .services import get_biofouling_service, get_data_service
+from .integration_service import get_orchestrator
 from .routes import predictions_router, ships_router, reports_router
+from .routes.integrations import router as integrations_router
 
 # =============================================================================
 # LOGGING SETUP
@@ -52,6 +54,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Model not loaded - predictions will be unavailable")
     
+    # Initialize service orchestrator (external APIs)
+    orchestrator = get_orchestrator()
+    await orchestrator.initialize()
+    logger.info("✅ Service orchestrator initialized")
+    
     logger.info(f"📂 Data directory: {settings.DATA_RAW_DIR}")
     logger.info(f"🧠 Models directory: {settings.MODELS_DIR}")
     logger.info("=" * 60)
@@ -62,6 +69,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down application...")
+    await orchestrator.shutdown()
 
 
 # =============================================================================
@@ -115,6 +123,7 @@ async def log_requests(request: Request, call_next):
 app.include_router(predictions_router, prefix="/api/v1")
 app.include_router(ships_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
+app.include_router(integrations_router, prefix="/api/v1")
 
 
 # =============================================================================
