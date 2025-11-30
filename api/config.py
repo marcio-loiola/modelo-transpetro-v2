@@ -108,6 +108,17 @@ class Settings(BaseSettings):
     # Emissions Reporting API (IMO DCS, EU MRV)
     EMISSIONS_API_URL: str | None = None
     EMISSIONS_API_KEY: str | None = None
+
+    # Ocean API (environmental cache)
+    OCEAN_API_URL: str | None = None
+    OCEAN_API_KEY: str | None = None
+    OCEAN_CACHE_TTL_SECONDS: int = 900
+    OCEAN_CACHE_MAX_STALE_SECONDS: int = 3600
+    OCEAN_CACHE_BACKOFF_SECONDS: int = 30
+
+    # Model versioning
+    MODEL_VERSION_PATH: str = "model_version.json"
+    MODEL_SHA256: str | None = None
     
     # ==========================================================================
     # SERVICE MESH / API GATEWAY CONFIGURATION

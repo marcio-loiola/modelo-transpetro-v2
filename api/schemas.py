@@ -112,6 +112,8 @@ class EventResponse(EventBase):
 class PredictionRequest(BaseModel):
     """Request schema for biofouling prediction."""
     ship_name: str = Field(..., description="Nome do navio")
+    session_id: str | None = Field(None, description="ID da sessão (opcional)")
+    start_date: datetime = Field(default_factory=datetime.now, description="Data de início do evento")
     speed: float = Field(..., ge=0, le=30, description="Velocidade em nós")
     duration: float = Field(..., ge=0, description="Duração da viagem em horas")
     days_since_cleaning: int = Field(..., ge=0, description="Dias desde última limpeza")
