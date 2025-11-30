@@ -20,7 +20,9 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 - **NumPy** - Computação numérica
 - **XGBoost** - Modelo de Machine Learning
 - **Scikit-learn** - Métricas e pré-processamento
-- **Matplotlib** - Visualizações
+- **FastAPI** - Backend API REST
+- **SQLAlchemy** - ORM para banco de dados
+- **SQLite** - Banco de dados
 
 ## 📁 Estrutura do Projeto
 
@@ -29,8 +31,9 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 │   ├── __init__.py
 │   ├── main.py                   # Aplicação principal
 │   ├── config.py                 # Configurações
+│   ├── database.py               # Banco de dados SQLite
 │   ├── schemas.py                # Modelos Pydantic
-│   ├── services.py               # Serviços de negócio
+│   ├── services.py               # Serviços de negócio e ML
 │   └── routes/                   # Rotas da API
 │       ├── predictions.py        # Endpoints de predição
 │       ├── ships.py              # Endpoints de navios
@@ -41,22 +44,21 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 │   └── validacao_cientifica.py   # Validação científica do modelo
 ├── data/
 │   ├── raw/                      # Dados brutos de entrada
-│   │   ├── ResultadoQueryEventos.csv
-│   │   ├── ResultadoQueryConsumo.csv
-│   │   └── Dados navios Hackathon.xlsx
-│   └── processed/                # Dados processados (output)
-│       ├── biofouling_report.csv
-│       └── biofouling_summary_by_ship.csv
+│   ├── processed/                # Dados processados (output)
+│   └── database/                 # Banco de dados SQLite
+│       └── biofouling.db
 ├── models/                       # Modelos treinados
 │   ├── modelo_final_v13.pkl
 │   └── encoder_final_v13.pkl
 ├── config/                       # Arquivos de configuração
-│   └── config_biofouling.json
 ├── reports/                      # Relatórios e resumos
-├── docs/                         # Documentação e referências
+├── docs/                         # Documentação
 ├── run_api.py                    # Script para iniciar a API
+├── test_api_complete.py          # Testes completos da API
+├── init_database.py              # Inicializar banco de dados
 ├── requirements.txt              # Dependências Python
-└── README.md                     # Este arquivo
+├── README.md                     # Este arquivo
+└── README_BACKEND.md             # Documentação do backend
 ```
 
 ## 🚀 Instalação
@@ -64,7 +66,7 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/marcio-loiola/modelo-transpetro-v2.git
+git clone <repository-url>
 cd modelo-transpetro-v2
 ```
 
@@ -115,11 +117,14 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 A API estará disponível em:
 
+- **API**: http://localhost:8000
 - **Documentação Swagger**: http://localhost:8000/docs
 - **Documentação ReDoc**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
 
-## 🔌 API Endpoints
+> 📖 **Para detalhes completos sobre o backend e seus endpoints, consulte**: [README_BACKEND.md](README_BACKEND.md)
+
+## 🔌 API Endpoints Principais
 
 ### Predições
 
@@ -180,6 +185,31 @@ curl -X POST "http://localhost:8000/api/v1/predictions/" \
 }
 ```
 
+## 🧪 Testes
+
+Execute os testes completos da API:
+
+```bash
+# Testes básicos
+python test_api_complete.py
+
+# Com APIs externas
+python test_api_complete.py --external
+
+# Modo verboso
+python test_api_complete.py --verbose
+```
+
+## 🗄️ Banco de Dados
+
+O projeto utiliza SQLite para armazenar predições e relatórios:
+
+- **Localização**: `data/database/biofouling.db`
+- **Inicialização**: Automática na primeira execução da API
+- **Inicialização manual**: `python init_database.py`
+
+O banco de dados funciona como fallback quando os arquivos CSV não estão disponíveis.
+
 ## 📊 Parâmetros do Algoritmo
 
 O modelo utiliza diversos parâmetros configuráveis na classe `Config`:
@@ -216,6 +246,12 @@ O modelo é avaliado usando:
    - Média e máximo do índice de biofouling
    - Total de combustível adicional
    - Custo total e emissões totais
+
+## 📚 Documentação Adicional
+
+- **[README_BACKEND.md](README_BACKEND.md)** - Documentação completa do backend API
+- **[TEST_README.md](TEST_README.md)** - Guia de testes
+- **[CORRECOES_ERROS.md](CORRECOES_ERROS.md)** - Correções implementadas
 
 ## 👥 Autor
 

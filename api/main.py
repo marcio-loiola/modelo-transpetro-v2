@@ -43,6 +43,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info("=" * 60)
     
+    # Initialize database
+    try:
+        from .database import ensure_db_initialized
+        ensure_db_initialized()
+        logger.info("✅ Database initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Database initialization failed: {e}")
+    
     # Pre-load services
     biofouling_service = get_biofouling_service()
     data_service = get_data_service()
