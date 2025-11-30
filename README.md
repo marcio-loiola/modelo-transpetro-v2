@@ -10,85 +10,106 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 
 ## 🔬 Detalhes Técnicos do Modelo
 
-### Algoritmo: XGBoost Regressor
-
-| Parâmetro               | Valor              | Descrição                          |
-| ----------------------- | ------------------ | ---------------------------------- |
-| `objective`             | `reg:squarederror` | Regressão com erro quadrático      |
-| `n_estimators`          | **300**            | Número de árvores no ensemble      |
-| `learning_rate`         | **0.03**           | Taxa de aprendizado (conservadora) |
-| `max_depth`             | **5**              | Profundidade máxima das árvores    |
-| `min_child_weight`      | **10**             | Peso mínimo em nós folha           |
-| `subsample`             | **0.8**            | Fração de amostras por árvore      |
-| `colsample_bytree`      | **0.8**            | Fração de features por árvore      |
-| `reg_alpha`             | **1.0**            | Regularização L1 (Lasso)           |
-| `reg_lambda`            | **2.0**            | Regularização L2 (Ridge)           |
-| `early_stopping_rounds` | **30**             | Parada antecipada                  |
-| `random_state`          | **42**             | Reprodutibilidade                  |
-
-### Variável Alvo (Target)
+## 📁 Estrutura do Projeto
 
 ```
-target_excess_ratio = (consumo_real - consumo_baseline) / consumo_baseline
+├── api/                          # Backend FastAPI
+│   ├── main.py                   # Entrada ASGI
+│   ├── config.py                 # Parâmetros e env vars
+│   ├── database.py               # Helpers SQLite e persistência local
+│   ├── schemas.py                # Modelos Pydantic usados nas rotas
+│   ├── services.py               # Serviços ML, reports e integrações
+│   ├── external_clients.py       # Clientes HTTP para terceiros
+│   ├── integration_service.py    # Orquestração das APIs internas
+│   └── routes/
+│       ├── predictions.py        # Pré-existentes `/api/v1/...`
+│       ├── ships.py              # Endpoints de navios e frota
+│       ├── reports.py            # Relatórios compilados
+│       ├── integrations.py       # Health checks e integrações
+│       └── operational.py        # Novos endpoints de operação e cache
+├── src/                          # Helpers de ciência de dados e clientes
+│   ├── pipeline/                 # Cálculo de features, hidrodinâmica e predição
+│   │   ├── baseline.py           # Consumo baseline (Admiralty)
+│   │   ├── feature_engineering.py# Transforms de idle/risk
+│   │   ├── hydrodynamics.py      # Reynolds, fricção e ΔR
+│   │   ├── impact.py             # Custos adicionais e CO₂
+│   │   └── prediction.py         # Orquestração final antes do modelo
+│   ├── clients/                  # Clientes HTTP externos
+│   │   └── ocean_api.py           # Cliente async para a Ocean API
+│   ├── models/                   # Serialização de modelos de teste
+│   │   └── stub.py                # Build / save / load de modelos stub
+   │   ├── script.py                 # Treino principal (662 linhas)
+   │   ├── analise_relatorio.py      # Análise auxiliar de relatórios
+   │   └── validacao_cientifica.py   # Validação estatística
+├── data/                         # Dados que alimentam o pipeline
+│   ├── raw/                      # Dados brutos do Hackathon
+│   ├── processed/                # Relatórios gerados (CSV/MD)
+│   └── database/                 # Banco SQLite usado nos testes
+│       └── biofouling.db
+├── models/                       # Artefatos treinados
+│   ├── modelo_final_v13.pkl
+│   └── encoder_final_v13.pkl
+├── config/                       # Arquivos de configuração (JSON/ambientes)
+├── reports/                      # Resumos em Markdown ou TXT
+├── docs/                         # Documentação (ex.: MICROSERVICES_ARCHITECTURE.md)
+├── run_api.py                    # Executa o FastAPI localmente
+├── init_database.py              # Inicializa o banco SQLite
+├── run_tests.py                  # Roda `pytest` com convenções próprias
+├── test_api.py                   # Testes rápidos da API
+├── test_api_complete.py          # Suite completa de testes da API
+├── README.md                     # Documentação principal
+├── README_BACKEND.md             # Documentação específica do backend
+├── requirements.txt              # Dependências Python
+└── model_version.json            # Versão + hash do modelo em uso
 ```
 
-- **Tipo**: Regressão contínua
-- **Intervalo válido**: -0.5 a 1.0 (excesso de -50% a +100%)
-- **Interpretação**: Percentual de consumo adicional devido ao biofouling
++│ └── routes/
+│ ├── predictions.py # Endpoints padrão de predição
+│ ├── ships.py # Informações da frota
+│ ├── reports.py # Relatórios compilados
+│ ├── integrations.py # Heath checks e integrações
+│ └── operational.py # Biofouling / vessel / ocean env
+├── src/ # Cálculos de modelo, clientes e helpers
+│ ├── pipeline/ # Pipeline physics + ML helpers
+│ │ ├── baseline.py # Admiralty baseline e eficiência
++│ │ ├── feature_engineering.py# Idle-/risk-based feature transforms
+│ │ ├── hydrodynamics.py # Reynolds e fricção
+│ │ ├── impact.py # Custos e emissões adicionais
+│ │ └── prediction.py # Orquestração final antes do modelo
+│ ├── clients/ # Assistentes HTTP para serviços externos
+│ │ └── ocean_api.py # Cliente assíncrono usado no cache
+│ ├── models/ # Helpers de serialização de modelos
+│ │ └── stub.py # Build / save / load de modelos de teste
+│ ├── script.py # Script principal de treino (662 linhas)
++│ ├── analise_relatorio.py # Análise auxiliar dos relatórios
+│ └── validacao_cientifica.py # Validação estatística
+├── data/ # Dados de entrada e bancos
+│ ├── raw/ # Dados brutos do Hackathon
+│ ├── processed/ # Outputs e resumos (CSV/MD)
+│ └── database/ # SQLite usado nos testes
+│ └── biofouling.db
+├── models/ # Modelos e encoders serializados
+│ ├── modelo_final_v13.pkl
+│ └── encoder_final_v13.pkl
+├── config/ # Configurações de biofouling e ambientes
+├── reports/ # Resumos em Markdown/TXT
+├── docs/ # Documentação extra (ex.: MICROSERVICES_ARCHITECTURE.md)
+├── run_api.py # Script para iniciar o FastAPI
+├── init_database.py # Inicializa o banco SQLite local
+├── run_tests.py # Execução rápida dos testes (pytest)
+├── test_api.py # Smoke tests da API
+├── test_api_complete.py # Testes end-to-end da API
+├── README.md # Documentação principal
+├── README_BACKEND.md # Documentação dedicada ao backend
+├── requirements.txt # Lista de dependências Python
+└── model_version.json # Metadata do modelo ativo
 
----
-
-## 🧮 Features do Modelo
-
-### Features Utilizadas (8 total)
-
-| Feature                    | Tipo       | Descrição                     | Origem               |
-| -------------------------- | ---------- | ----------------------------- | -------------------- |
-| `speed`                    | Numérica   | Velocidade do navio (nós)     | Eventos AIS          |
-| `beaufortScale`            | Numérica   | Escala de Beaufort (0-12)     | Dados meteorológicos |
-| `days_since_cleaning`      | Numérica   | Dias desde última docagem     | Calculada            |
-| `pct_idle_recent`          | Numérica   | % tempo parado (30 dias)      | Calculada            |
-| `accumulated_fouling_risk` | Numérica   | Risco acumulado de fouling    | Calculada            |
-| `historical_avg_speed`     | Numérica   | Média histórica de velocidade | Calculada            |
-| `paint_x_speed`            | Numérica   | Interação tinta × velocidade  | Calculada            |
-| `paint_encoded`            | Categórica | Tipo de tinta (codificada)    | Label Encoding       |
-
-### Engenharia de Features
-
-#### 1. Percentual de Tempo Ocioso (`pct_idle_recent`)
-
-```python
-# Janela móvel de 30 dias
-IDLE_SPEED_THRESHOLD = 5.0  # nós
-idle_hours = duration if speed < 5.0 else 0
-pct_idle_recent = sum(idle_hours_30d) / sum(total_hours_30d)
-```
-
-#### 2. Risco Acumulado de Fouling (`accumulated_fouling_risk`)
-
-```python
-accumulated_fouling_risk = pct_idle_recent × days_since_cleaning
-```
-
-- **Lógica**: Navios parados por mais tempo em águas paradas acumulam mais biofouling
-
-#### 3. Fator de Performance de Tinta (`paint_performance_factor`)
-
-```python
-if is_SPC and pct_idle_recent > 0.30:
-    paint_performance_factor = 0.80  # Penalidade de 20%
-else:
-    paint_performance_factor = 1.00
-```
-
-- **SPC (Self-Polishing Coating)**: Funciona melhor com movimento
-
-#### 4. Dias Desde Limpeza (`days_since_cleaning`)
+````
 
 ```python
 # Merge assíncrono com tabela de docagens
 days_since_cleaning = event_date - last_drydock_date
-```
+````
 
 ---
 
@@ -158,72 +179,38 @@ bio_index_0_10 = bio_index × 10  # Arredondado para 1 casa decimal
 | `FUEL_PRICE_USD_PER_TON` | **500**   | USD/ton              |
 | `CO2_TON_PER_FUEL_TON`   | **3.114** | tCO₂/ton combustível |
 
-### Fórmulas
+│ ├── models/ # Helpers de serialização de modelos stub
+│ │ └── stub.py # Build / save / load
+│ ├── script.py # Treino principal (662 linhas)
+│ ├── analise_relatorio.py # Análises auxiliares de relatórios
+│ └── validacao_cientifica.py # Validação científica e estatística
+├── data/ # Dados que alimentam o pipeline
+│ ├── raw/ # Dados brutos recebidos
+│ ├── processed/ # Relatórios e outputs gerados
+│ └── database/ # SQLite com corpus de teste
+│ └── biofouling.db
+├── models/ # Artefatos treinados
+│ ├── modelo_final_v13.pkl
+│ └── encoder_final_v13.pkl
+├── config/ # Arquivos de configuração JSON e templates
+├── reports/ # Resumos Markdown/TXT
+├── docs/ # Documentação extra (ex.: MICROSERVICES_ARCHITECTURE.md)
+├── run_api.py # Inicia o FastAPI localmente
+├── init_database.py # Inicializa o banco SQLite
+├── run_tests.py # Script auxiliar para rodar pytest
+├── test_api.py # Smoke tests da API
+├── test_api_complete.py # Suite completa de testes da API
+├── README.md # Documentação principal do projeto
+├── README_BACKEND.md # Documentação dedicada ao backend
+├── requirements.txt # Lista de dependências Python
+└── model_version.json # Versão e hash SHA do modelo em produção
 
-```python
-additional_fuel_tons = baseline_consumption × target_excess_ratio
-additional_cost_usd = additional_fuel_tons × 500
-additional_co2_tons = additional_fuel_tons × 3.114
-```
+````
 
----
-
-## 📁 Dados de Entrada
-
-### Arquivos Necessários
-
-| Arquivo                       | Formato | Descrição          | Colunas Principais                                                                        |
-| ----------------------------- | ------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| `ResultadoQueryEventos.csv`   | CSV     | Eventos AIS        | shipName, sessionId, startGMTDate, speed, duration, displacement, midDraft, beaufortScale |
-| `ResultadoQueryConsumo.csv`   | CSV     | Consumo por sessão | SESSION_ID, CONSUMED_QUANTITY                                                             |
-| `Dados navios Hackathon.xlsx` | Excel   | Docagens e tintas  | Sheet: "Lista de docagens" → Navio, Docagem                                               |
-
-### Mapeamento de Colunas
-
-```python
-COL_SHIP_NAME = 'shipName'
-COL_START_DATE = 'startGMTDate'
-COL_SESSION_ID = 'sessionId'
-COL_SESSION_ID_CONSUMPTION = 'SESSION_ID'
-COL_CONSUMPTION = 'CONSUMED_QUANTITY'
-COL_SPEED = 'speed'
-COL_DURATION = 'duration'
-COL_DISPLACEMENT = 'displacement'
-COL_DRAFT = 'midDraft'
-COL_DOCAGEM_DATE = 'Docagem'
-COL_DOCAGEM_SHIP = 'Navio'
-COL_PAINT_TYPE = 'Tipo'
-```
-
----
-
-## 🔀 Split de Dados
-
-| Conjunto      | Proporção         | Uso              |
-| ------------- | ----------------- | ---------------- |
-| **Treino**    | 80% (cronológico) | Ajuste do modelo |
-| **Validação** | 10% do treino     | Early stopping   |
-| **Teste**     | 20% (cronológico) | Avaliação final  |
-
-```python
-TRAIN_TEST_SPLIT_RATIO = 0.80
-VALIDATION_SPLIT_RATIO = 0.90  # 90% do treino para fit, 10% para validação
-```
-
-⚠️ **Split cronológico**: Não aleatório, respeita ordem temporal para evitar data leakage.
-
----
-
-## 📈 Métricas de Performance
-
-### Métricas Calculadas
-
-| Métrica      | Fórmula                  | Descrição                 |
-| ------------ | ------------------------ | ------------------------- |
-| **RMSE**     | √(Σ(real - pred)² / n)   | Erro quadrático médio     |
-| **MAE**      | Σ\|real - pred\| / n     | Erro absoluto médio       |
-| **WMAPE**    | Σ\|real - pred\| / Σreal | Erro percentual ponderado |
-| **Accuracy** | 100 × (1 - WMAPE)        | Acurácia geral            |
+| **RMSE** | √(Σ(real - pred)² / n) | Erro quadrático médio |
+| **MAE** | Σ\|real - pred\| / n | Erro absoluto médio |
+| **WMAPE** | Σ\|real - pred\| / Σreal | Erro percentual ponderado |
+| **Accuracy** | 100 × (1 - WMAPE) | Acurácia geral |
 
 ### Sanity Check (Validação de Impacto)
 
@@ -233,7 +220,7 @@ Cenário Limpo:  days_since_cleaning = 30
 Cenário Sujo:   days_since_cleaning = 400
 
 Biofouling Penalty = fuel_dirty - fuel_clean
-```
+````
 
 ---
 
@@ -358,71 +345,60 @@ Essa rotina preenche gaps da API, garante latência constante (<220 ms) e disp
 - O cache ambiental respeita os env vars `OCEAN_CACHE_TTL_SECONDS` e `OCEAN_CACHE_MAX_STALE_SECONDS`, documentados abaixo.
 - Use o hash SHA para decidir se há nova versão, mantendo o rollout simples em FastAPI/Flask/BentoML.
 
-## 🔧 Configuração
-
-### Variáveis de Ambiente (`.env`)
-
-```env
-# APIs Externas (opcional)
-WEATHER_API_URL=
-WEATHER_API_KEY=
-VESSEL_API_URL=
-VESSEL_API_KEY=
-FUEL_API_URL=
-FUEL_API_KEY=
-
-# Observabilidade
-LOG_LEVEL=INFO
-OTEL_ENABLED=false
-METRICS_ENABLED=true
-```
-
-- `OCEAN_CACHE_TTL_SECONDS` / `OCEAN_CACHE_MAX_STALE_SECONDS` controlam quanto tempo o cache ambiental fica válido e quanto tempo os dados podem ficar "stale" antes de serem recarregados.
-- `OCEAN_CACHE_BACKOFF_SECONDS` dá um tempo de retry quando a Ocean API falha.
-- `MODEL_VERSION_PATH` aponta para `model_version.json` e `MODEL_SHA256` armazena o digest do modelo ativo para fins de rastreabilidade.
-
----
-
 ## 📁 Estrutura do Projeto
 
 ```
 ├── api/                          # Backend FastAPI
-│   ├── main.py                   # Aplicação principal
-│   ├── config.py                 # Configurações (60+ parâmetros)
-│   ├── schemas.py                # Modelos Pydantic
-│   ├── services.py               # BiofoulingService, DataService
-│   ├── external_clients.py       # Clientes HTTP para APIs externas
-│   ├── integration_service.py    # Orquestrador de serviços
+│   ├── main.py                   # Entrada ASGI
+│   ├── config.py                 # Parâmetros e env vars
+│   ├── database.py               # Helpers SQLite e persistência
+│   ├── schemas.py                # Modelos Pydantic compartilhados
+│   ├── services.py               # Serviços de negócio e ML
+│   ├── external_clients.py       # Clientes HTTP para terceiros
+│   ├── integration_service.py    # Orquestração das chamadas internas
 │   └── routes/
-│       ├── predictions.py        # Endpoints de predição
-│       ├── ships.py              # Endpoints de navios
-│       ├── reports.py            # Endpoints de relatórios
-│       └── integrations.py       # Endpoints de integração
-├── src/
-│   ├── pipeline/                 # Pipeline physics + ML helpers
-│   │   ├── baseline.py           # Admiralty baseline and efficiency
-│   │   ├── feature_engineering.py# Idle-/risk-based feature transforms
-│   │   ├── hydrodynamics.py      # Reynolds / friction approximations
-│   │   ├── impact.py             # Cost & CO₂ impact math
-│   │   └── prediction.py         # Feature orchestration + inference
-│   ├── clients/                  # External HTTP helpers (Ocean API, etc.)
-│   │   └── ocean_api.py           # Async client used by the cache
-│   ├── models/                   # Model serialization helpers
-│   │   └── stub.py                # Build/save/load artifacts for tests
-│   ├── script.py                 # Script principal (662 linhas)
-│   ├── analise_relatorio.py      # Análise dos relatórios
-│   └── validacao_cientifica.py   # Validação científica
-├── data/
-│   ├── raw/                      # Dados brutos
-│   └── processed/                # Relatórios gerados
-├── models/                       # Modelos .pkl
-├── config/                       # config_biofouling.json
-├── reports/                      # Resumos texto/markdown
-├── docs/                         # Documentação adicional
-│   └── MICROSERVICES_ARCHITECTURE.md
-├── run_api.py                    # Iniciar API
-└── requirements.txt              # Dependências
+│       ├── predictions.py        # `/api/v1/predictions/` e endpoints similares
+│       ├── ships.py              # Informações da frota
+│       ├── reports.py            # Relatórios e resumos
+│       ├── integrations.py       # Health checks e integrações
+│       └── operational.py        # Novos endpoints de operação
+├── src/                          # Helpers de ciência de dados, clients e stubs
+│   ├── pipeline/                 # Cálculo de features e orquestração de predição
+│   │   ├── baseline.py           # Admiralty baseline e eficiência
+│   │   ├── feature_engineering.py# Transformações idle/risk
+│   │   ├── hydrodynamics.py      # Reynolds, CF e ΔR
+│   │   ├── impact.py             # Custos e CO₂
+│   │   └── prediction.py         # Orquestração final antes do modelo
+│   ├── clients/                  # Clientes HTTP externos
+│   │   └── ocean_api.py           # Assistente assíncrono usado pelo cache
+│   ├── models/                   # Serialização de modelos stub
+│   │   └── stub.py                # Build / save / load
+│   ├── script.py                 # Script principal de treino
+│   ├── analise_relatorio.py      # Análises auxiliar de relatórios
+│   └── validacao_cientifica.py   # Validação estatística
+├── data/                         # Dados que alimentam o pipeline
+│   ├── raw/                      # Dados brutos recebidos
+│   ├── processed/                # Outputs gerados (CSV/MD)
+│   └── database/                 # SQLite para testes e demos
+│       └── biofouling.db
+├── models/                       # Artefatos treinados
+│   ├── modelo_final_v13.pkl
+│   └── encoder_final_v13.pkl
+├── config/                       # Arquivos JSON e templates de configuração
+├── reports/                      # Resumos e dashboards em Markdown/TXT
+├── docs/                         # Documentação adicional (ex.: MICROSERVICES_ARCHITECTURE.md)
+├── run_api.py                    # Inicia o FastAPI localmente
+├── init_database.py              # Cria o banco SQLite
+├── run_tests.py                  # Wrapper para executar `pytest`
+├── test_api.py                   # Smoke tests da API
+├── test_api_complete.py          # Suite completa de testes da API
+├── README.md                     # Documentação principal
+├── README_BACKEND.md             # Documentação do backend
+├── requirements.txt              # Dependências Python
+└── model_version.json            # Versão e hash SHA do modelo ativo
 ```
+
+````
 
 ## 🧠 Camada `src` (orientação para a equipe de dados)
 
@@ -445,12 +421,12 @@ Essa organização deixa claro onde ajustar features e onde documentar experimen
 ### Instalação
 
 ```bash
-git clone https://github.com/marcio-loiola/modelo-transpetro-v2.git
+git clone <repository-url>
 cd modelo-transpetro-v2
 python -m venv .venv
 .venv\Scripts\activate  # Windows
 pip install -r requirements.txt
-```
+````
 
 ### Treinar Modelo
 
@@ -484,9 +460,22 @@ uvicorn api.main:app --reload --port 8000
 | pydantic     | ≥2.5   | Validação de dados       |
 | httpx        | ≥0.27  | Cliente HTTP async       |
 
----
+## <<<<<<< HEAD
 
 ## 🔄 Comparativo para Análise
+
+=======
+
+- **API**: http://localhost:8000
+- **Documentação Swagger**: http://localhost:8000/docs
+- **Documentação ReDoc**: http://localhost:8000/redoc
+- **Health Check**: http://localhost:8000/health
+
+> 📖 **Para detalhes completos sobre o backend e seus endpoints, consulte**: [README_BACKEND.md](README_BACKEND.md)
+
+## 🔌 API Endpoints Principais
+
+> > > > > > > origin/maikon
 
 ### Resumo Técnico para Comparação
 
@@ -504,7 +493,129 @@ uvicorn api.main:app --reload --port 8000
 | **Custos**            | USD 500/ton combustível            |
 | **Emissões**          | 3.114 tCO₂/ton combustível         |
 
----
+## <<<<<<< HEAD
+
+=======
+
+### Navios
+
+| Método | Endpoint                            | Descrição                     |
+| ------ | ----------------------------------- | ----------------------------- |
+| GET    | `/api/v1/ships/`                    | Lista todos os navios         |
+| GET    | `/api/v1/ships/{ship_name}`         | Detalhes de um navio          |
+| GET    | `/api/v1/ships/{ship_name}/summary` | Resumo de biofouling do navio |
+| GET    | `/api/v1/ships/fleet/summary`       | Resumo da frota completa      |
+
+### Relatórios
+
+| Método | Endpoint                            | Descrição                           |
+| ------ | ----------------------------------- | ----------------------------------- |
+| GET    | `/api/v1/reports/biofouling`        | Relatório de biofouling com filtros |
+| GET    | `/api/v1/reports/biofouling/export` | Exportar relatório em CSV           |
+| GET    | `/api/v1/reports/statistics`        | Estatísticas gerais                 |
+| GET    | `/api/v1/reports/high-risk`         | Navios com alto risco de biofouling |
+
+### Exemplo de Requisição
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/predictions/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ship_name": "NAVIO EXEMPLO",
+    "speed": 12.5,
+    "duration": 24.0,
+    "days_since_cleaning": 180,
+    "displacement": 50000,
+    "beaufort_scale": 3
+  }'
+```
+
+### Exemplo de Resposta
+
+```json
+{
+  "ship_name": "NAVIO EXEMPLO",
+  "status": "success",
+  "predicted_consumption": 45.23,
+  "baseline_consumption": 42.1,
+  "excess_ratio": 0.0743,
+  "bio_index": 4.2,
+  "bio_class": "Leve",
+  "additional_fuel_tons": 3.13,
+  "additional_cost_usd": 1565.0,
+  "additional_co2_tons": 9.75,
+  "model_version": "v13"
+}
+```
+
+## 🧪 Testes
+
+Execute os testes completos da API:
+
+```bash
+# Testes básicos
+python test_api_complete.py
+
+# Com APIs externas
+python test_api_complete.py --external
+
+# Modo verboso
+python test_api_complete.py --verbose
+```
+
+## 🗄️ Banco de Dados
+
+O projeto utiliza SQLite para armazenar predições e relatórios:
+
+- **Localização**: `data/database/biofouling.db`
+- **Inicialização**: Automática na primeira execução da API
+- **Inicialização manual**: `python init_database.py`
+
+O banco de dados funciona como fallback quando os arquivos CSV não estão disponíveis.
+
+## 📊 Parâmetros do Algoritmo
+
+O modelo utiliza diversos parâmetros configuráveis na classe `Config`:
+
+| Categoria           | Parâmetro                | Descrição                                                |
+| ------------------- | ------------------------ | -------------------------------------------------------- |
+| Feature Engineering | `IDLE_SPEED_THRESHOLD`   | Velocidade limite para considerar navio parado (5.0 nós) |
+| Feature Engineering | `ROLLING_WINDOW_DAYS`    | Janela de média móvel (30 dias)                          |
+| Modelo              | `n_estimators`           | Número de árvores XGBoost (300)                          |
+| Modelo              | `learning_rate`          | Taxa de aprendizado (0.03)                               |
+| Modelo              | `max_depth`              | Profundidade máxima das árvores (5)                      |
+| Biofouling          | `SIGMOID_MIDPOINT`       | Ponto médio da curva sigmoid (10%)                       |
+| Custos              | `FUEL_PRICE_USD_PER_TON` | Preço do combustível (500 USD/ton)                       |
+
+## 📈 Métricas de Performance
+
+O modelo é avaliado usando:
+
+- **RMSE** - Root Mean Square Error
+- **MAE** - Mean Absolute Error
+- **WMAPE** - Weighted Mean Absolute Percentage Error
+- **Accuracy** - Acurácia geral do modelo
+
+## 📝 Saídas
+
+1. **biofouling_report.csv** - Relatório detalhado por evento
+
+   - Índice de biofouling (0-10)
+   - Classificação (Leve, Moderada, Severa)
+   - Custo adicional estimado
+   - Emissões extras de CO₂
+
+2. **biofouling_summary_by_ship.csv** - Resumo agregado por navio
+   - Média e máximo do índice de biofouling
+   - Total de combustível adicional
+   - Custo total e emissões totais
+     > > > > > > > origin/maikon
+
+## 📚 Documentação Adicional
+
+- **[README_BACKEND.md](README_BACKEND.md)** - Documentação completa do backend API
+- **[TEST_README.md](TEST_README.md)** - Guia de testes
+- **[CORRECOES_ERROS.md](CORRECOES_ERROS.md)** - Correções implementadas
 
 ## 👥 Autor
 
