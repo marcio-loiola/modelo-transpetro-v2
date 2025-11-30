@@ -12,11 +12,15 @@ ENV/
 .vscode/
 .idea/
 
-# Model artifacts (optional - uncomment if you want to include)
-# *.pkl
+# Model artifacts (optional - uncomment to exclude)
+# models/*.pkl
 
-# Large data files
-*.pdf
+# Large data files (in docs folder)
+docs/*.pdf
+
+# Large raw data files (optional - uncomment to exclude)
+# data/raw/*.xlsx
+# data/raw/*.zip
 
 # Temporary files
 *.tmp

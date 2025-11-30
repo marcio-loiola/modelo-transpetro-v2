@@ -25,17 +25,29 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 ## 📁 Estrutura do Projeto
 
 ```
-├── script.py                    # Script principal do modelo
-├── analise_relatorio.py         # Análise dos relatórios gerados
-├── validacao_cientifica.py      # Validação científica do modelo
-├── config_biofouling.json       # Configurações do modelo
-├── requirements.txt             # Dependências Python
-├── ResultadoQueryEventos.csv    # Dados de eventos de navegação
-├── ResultadoQueryConsumo.csv    # Dados de consumo de combustível
-├── biofouling_report.csv        # Relatório detalhado (output)
-├── biofouling_summary_by_ship.csv # Resumo por navio (output)
-├── RESUMO_BIOFOULING.md         # Resumo executivo
-└── README.md                    # Este arquivo
+├── src/                          # Código fonte
+│   ├── script.py                 # Script principal do modelo
+│   ├── analise_relatorio.py      # Análise dos relatórios gerados
+│   └── validacao_cientifica.py   # Validação científica do modelo
+├── data/
+│   ├── raw/                      # Dados brutos de entrada
+│   │   ├── ResultadoQueryEventos.csv
+│   │   ├── ResultadoQueryConsumo.csv
+│   │   └── Dados navios Hackathon.xlsx
+│   └── processed/                # Dados processados (output)
+│       ├── biofouling_report.csv
+│       └── biofouling_summary_by_ship.csv
+├── models/                       # Modelos treinados
+│   ├── modelo_final_v13.pkl
+│   └── encoder_final_v13.pkl
+├── config/                       # Arquivos de configuração
+│   └── config_biofouling.json
+├── reports/                      # Relatórios e resumos
+│   ├── RESUMO_BIOFOULING.md
+│   └── RESUMO_BIOFOULING.txt
+├── docs/                         # Documentação e referências
+├── requirements.txt              # Dependências Python
+└── README.md                     # Este arquivo
 ```
 
 ## 🚀 Instalação
@@ -66,7 +78,7 @@ pip install -r requirements.txt
 Execute o script principal:
 
 ```bash
-python script.py
+python src/script.py
 ```
 
 O script irá:

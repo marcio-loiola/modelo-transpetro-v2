@@ -19,10 +19,14 @@ logging.basicConfig(
 )
 
 class Config:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    # Use Raw_Data subdirectory if present, otherwise fall back to BASE_DIR
-    _possible_raw = os.path.join(BASE_DIR, 'Raw_Data')
-    DATA_DIR = _possible_raw if os.path.exists(_possible_raw) else BASE_DIR
+    # Project structure paths
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Project root
+    SRC_DIR = os.path.join(BASE_DIR, 'src')
+    DATA_RAW_DIR = os.path.join(BASE_DIR, 'data', 'raw')
+    DATA_PROCESSED_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+    MODELS_DIR = os.path.join(BASE_DIR, 'models')
+    CONFIG_DIR = os.path.join(BASE_DIR, 'config')
+    REPORTS_DIR = os.path.join(BASE_DIR, 'reports')
 
     FILE_EVENTS = 'ResultadoQueryEventos.csv'
     FILE_CONSUMPTION = 'ResultadoQueryConsumo.csv'
@@ -109,7 +113,9 @@ def print_algorithm_parameters():
             # -----------------------------------------------------------------
             "data_sources": {
                 "base_directory": Config.BASE_DIR,
-                "data_directory": Config.DATA_DIR,
+                "data_raw_directory": Config.DATA_RAW_DIR,
+                "data_processed_directory": Config.DATA_PROCESSED_DIR,
+                "models_directory": Config.MODELS_DIR,
                 "events_file": Config.FILE_EVENTS,
                 "consumption_file": Config.FILE_CONSUMPTION,
                 "drydock_file": Config.FILE_DRYDOCK,
@@ -238,9 +244,9 @@ def print_algorithm_parameters():
 
 def load_data():
     try:
-        path_events = os.path.join(Config.DATA_DIR, Config.FILE_EVENTS)
-        path_consumption = os.path.join(Config.DATA_DIR, Config.FILE_CONSUMPTION)
-        path_drydock = os.path.join(Config.DATA_DIR, Config.FILE_DRYDOCK)
+        path_events = os.path.join(Config.DATA_RAW_DIR, Config.FILE_EVENTS)
+        path_consumption = os.path.join(Config.DATA_RAW_DIR, Config.FILE_CONSUMPTION)
+        path_drydock = os.path.join(Config.DATA_RAW_DIR, Config.FILE_DRYDOCK)
 
         df_events = pd.read_csv(path_events)
         df_consumption = pd.read_csv(path_consumption)
@@ -249,7 +255,7 @@ def load_data():
         df_consumption = df_consumption.groupby(Config.COL_SESSION_ID_CONSUMPTION, as_index=False)[Config.COL_CONSUMPTION].sum()
         df_drydock = pd.read_excel(path_drydock, sheet_name=Config.SHEET_DRYDOCK)
 
-        path_paint_csv = os.path.join(Config.DATA_DIR, Config.FILE_PAINT)
+        path_paint_csv = os.path.join(Config.DATA_RAW_DIR, Config.FILE_PAINT)
         if os.path.exists(path_paint_csv):
             df_paint = pd.read_csv(path_paint_csv)
         else:
@@ -505,8 +511,8 @@ def main():
         report_cols += ['additional_fuel_tons', 'additional_cost_usd', 'additional_co2_tons']
 
     try:
-        df_main[report_cols].to_csv(os.path.join(Config.BASE_DIR, Config.REPORT_OUTPUT), index=False)
-        print(f"Biofouling report exported to: {os.path.join(Config.BASE_DIR, Config.REPORT_OUTPUT)}")
+        df_main[report_cols].to_csv(os.path.join(Config.DATA_PROCESSED_DIR, Config.REPORT_OUTPUT), index=False)
+        print(f"Biofouling report exported to: {os.path.join(Config.DATA_PROCESSED_DIR, Config.REPORT_OUTPUT)}")
     except Exception as e:
         print(f"Failed to write biofouling report: {e}", file=sys.stderr)
 
@@ -542,8 +548,8 @@ def main():
             'additional_co2_tons_sum': 'total_additional_co2'
         })
     try:
-        df_summary.to_csv(os.path.join(Config.BASE_DIR, Config.SUMMARY_OUTPUT), index=False)
-        print(f"Ship summary exported to: {os.path.join(Config.BASE_DIR, Config.SUMMARY_OUTPUT)}")
+        df_summary.to_csv(os.path.join(Config.DATA_PROCESSED_DIR, Config.SUMMARY_OUTPUT), index=False)
+        print(f"Ship summary exported to: {os.path.join(Config.DATA_PROCESSED_DIR, Config.SUMMARY_OUTPUT)}")
     except Exception as e:
         print(f"Failed to write ship summary: {e}", file=sys.stderr)
 
@@ -649,8 +655,8 @@ def main():
     except Exception as e:
         print(f"Sanity Check Failed: {e}")
 
-    joblib.dump(model, os.path.join(Config.BASE_DIR, Config.MODEL_OUTPUT))
-    joblib.dump(le, os.path.join(Config.BASE_DIR, Config.ENCODER_OUTPUT))
+    joblib.dump(model, os.path.join(Config.MODELS_DIR, Config.MODEL_OUTPUT))
+    joblib.dump(le, os.path.join(Config.MODELS_DIR, Config.ENCODER_OUTPUT))
 
 if __name__ == "__main__":
     main()
