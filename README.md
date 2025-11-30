@@ -25,7 +25,17 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 ## 📁 Estrutura do Projeto
 
 ```
-├── src/                          # Código fonte
+├── api/                          # Backend FastAPI
+│   ├── __init__.py
+│   ├── main.py                   # Aplicação principal
+│   ├── config.py                 # Configurações
+│   ├── schemas.py                # Modelos Pydantic
+│   ├── services.py               # Serviços de negócio
+│   └── routes/                   # Rotas da API
+│       ├── predictions.py        # Endpoints de predição
+│       ├── ships.py              # Endpoints de navios
+│       └── reports.py            # Endpoints de relatórios
+├── src/                          # Código fonte do modelo
 │   ├── script.py                 # Script principal do modelo
 │   ├── analise_relatorio.py      # Análise dos relatórios gerados
 │   └── validacao_cientifica.py   # Validação científica do modelo
@@ -43,9 +53,8 @@ O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando 
 ├── config/                       # Arquivos de configuração
 │   └── config_biofouling.json
 ├── reports/                      # Relatórios e resumos
-│   ├── RESUMO_BIOFOULING.md
-│   └── RESUMO_BIOFOULING.txt
 ├── docs/                         # Documentação e referências
+├── run_api.py                    # Script para iniciar a API
 ├── requirements.txt              # Dependências Python
 └── README.md                     # Este arquivo
 ```
@@ -75,7 +84,9 @@ pip install -r requirements.txt
 
 ## 💻 Uso
 
-Execute o script principal:
+### Treinar o Modelo
+
+Execute o script principal para treinar o modelo:
 
 ```bash
 python src/script.py
@@ -87,6 +98,87 @@ O script irá:
 2. Realizar engenharia de features
 3. Treinar o modelo XGBoost
 4. Gerar relatórios de biofouling
+
+### Iniciar a API
+
+Execute o servidor FastAPI:
+
+```bash
+python run_api.py
+```
+
+Ou diretamente com uvicorn:
+
+```bash
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+A API estará disponível em:
+
+- **Documentação Swagger**: http://localhost:8000/docs
+- **Documentação ReDoc**: http://localhost:8000/redoc
+- **Health Check**: http://localhost:8000/health
+
+## 🔌 API Endpoints
+
+### Predições
+
+| Método | Endpoint                       | Descrição                              |
+| ------ | ------------------------------ | -------------------------------------- |
+| POST   | `/api/v1/predictions/`         | Predição de biofouling para uma viagem |
+| POST   | `/api/v1/predictions/batch`    | Predições em lote                      |
+| POST   | `/api/v1/predictions/scenario` | Comparação de cenários (limpo vs sujo) |
+
+### Navios
+
+| Método | Endpoint                            | Descrição                     |
+| ------ | ----------------------------------- | ----------------------------- |
+| GET    | `/api/v1/ships/`                    | Lista todos os navios         |
+| GET    | `/api/v1/ships/{ship_name}`         | Detalhes de um navio          |
+| GET    | `/api/v1/ships/{ship_name}/summary` | Resumo de biofouling do navio |
+| GET    | `/api/v1/ships/fleet/summary`       | Resumo da frota completa      |
+
+### Relatórios
+
+| Método | Endpoint                            | Descrição                           |
+| ------ | ----------------------------------- | ----------------------------------- |
+| GET    | `/api/v1/reports/biofouling`        | Relatório de biofouling com filtros |
+| GET    | `/api/v1/reports/biofouling/export` | Exportar relatório em CSV           |
+| GET    | `/api/v1/reports/statistics`        | Estatísticas gerais                 |
+| GET    | `/api/v1/reports/high-risk`         | Navios com alto risco de biofouling |
+
+### Exemplo de Requisição
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/predictions/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ship_name": "NAVIO EXEMPLO",
+    "speed": 12.5,
+    "duration": 24.0,
+    "days_since_cleaning": 180,
+    "displacement": 50000,
+    "beaufort_scale": 3
+  }'
+```
+
+### Exemplo de Resposta
+
+```json
+{
+  "ship_name": "NAVIO EXEMPLO",
+  "status": "success",
+  "predicted_consumption": 45.23,
+  "baseline_consumption": 42.1,
+  "excess_ratio": 0.0743,
+  "bio_index": 4.2,
+  "bio_class": "Leve",
+  "additional_fuel_tons": 3.13,
+  "additional_cost_usd": 1565.0,
+  "additional_co2_tons": 9.75,
+  "model_version": "v13"
+}
+```
 
 ## 📊 Parâmetros do Algoritmo
 
