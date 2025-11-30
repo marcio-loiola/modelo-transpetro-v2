@@ -1,226 +1,460 @@
-# Modelo de Predição de Biofouling - Transpetro v2
+# 🚢 Modelo de Predição de Biofouling - Transpetro v2
 
-## 📋 Descrição
+## 📋 Visão Geral
 
-Este projeto implementa um modelo de Machine Learning (XGBoost) para predição do impacto de **biofouling** (incrustação biológica) no consumo de combustível de navios da frota Transpetro.
+Este projeto implementa um **modelo de Machine Learning (XGBoost)** para predição do impacto de **biofouling** (incrustação biológica) no consumo de combustível de navios da frota Transpetro.
 
 O biofouling é o acúmulo de organismos marinhos no casco dos navios, causando aumento da resistência ao avanço e, consequentemente, maior consumo de combustível e emissões de CO₂.
 
-## 🎯 Objetivos
+---
 
-- Prever o **excesso de consumo de combustível** causado por biofouling
-- Calcular o **índice de biofouling** (escala 0-10) para cada embarcação
-- Estimar **custos adicionais** e **emissões de CO₂** associadas
-- Auxiliar na tomada de decisão sobre **limpeza de casco** (docagem)
+## 🔬 Detalhes Técnicos do Modelo
 
-## 🛠️ Tecnologias Utilizadas
+### Algoritmo: XGBoost Regressor
 
-- **Python 3.8+**
-- **Pandas** - Manipulação de dados
-- **NumPy** - Computação numérica
-- **XGBoost** - Modelo de Machine Learning
-- **Scikit-learn** - Métricas e pré-processamento
-- **Matplotlib** - Visualizações
+| Parâmetro               | Valor              | Descrição                          |
+| ----------------------- | ------------------ | ---------------------------------- |
+| `objective`             | `reg:squarederror` | Regressão com erro quadrático      |
+| `n_estimators`          | **300**            | Número de árvores no ensemble      |
+| `learning_rate`         | **0.03**           | Taxa de aprendizado (conservadora) |
+| `max_depth`             | **5**              | Profundidade máxima das árvores    |
+| `min_child_weight`      | **10**             | Peso mínimo em nós folha           |
+| `subsample`             | **0.8**            | Fração de amostras por árvore      |
+| `colsample_bytree`      | **0.8**            | Fração de features por árvore      |
+| `reg_alpha`             | **1.0**            | Regularização L1 (Lasso)           |
+| `reg_lambda`            | **2.0**            | Regularização L2 (Ridge)           |
+| `early_stopping_rounds` | **30**             | Parada antecipada                  |
+| `random_state`          | **42**             | Reprodutibilidade                  |
+
+### Variável Alvo (Target)
+
+```
+target_excess_ratio = (consumo_real - consumo_baseline) / consumo_baseline
+```
+
+- **Tipo**: Regressão contínua
+- **Intervalo válido**: -0.5 a 1.0 (excesso de -50% a +100%)
+- **Interpretação**: Percentual de consumo adicional devido ao biofouling
+
+---
+
+## 🧮 Features do Modelo
+
+### Features Utilizadas (8 total)
+
+| Feature                    | Tipo       | Descrição                     | Origem               |
+| -------------------------- | ---------- | ----------------------------- | -------------------- |
+| `speed`                    | Numérica   | Velocidade do navio (nós)     | Eventos AIS          |
+| `beaufortScale`            | Numérica   | Escala de Beaufort (0-12)     | Dados meteorológicos |
+| `days_since_cleaning`      | Numérica   | Dias desde última docagem     | Calculada            |
+| `pct_idle_recent`          | Numérica   | % tempo parado (30 dias)      | Calculada            |
+| `accumulated_fouling_risk` | Numérica   | Risco acumulado de fouling    | Calculada            |
+| `historical_avg_speed`     | Numérica   | Média histórica de velocidade | Calculada            |
+| `paint_x_speed`            | Numérica   | Interação tinta × velocidade  | Calculada            |
+| `paint_encoded`            | Categórica | Tipo de tinta (codificada)    | Label Encoding       |
+
+### Engenharia de Features
+
+#### 1. Percentual de Tempo Ocioso (`pct_idle_recent`)
+
+```python
+# Janela móvel de 30 dias
+IDLE_SPEED_THRESHOLD = 5.0  # nós
+idle_hours = duration if speed < 5.0 else 0
+pct_idle_recent = sum(idle_hours_30d) / sum(total_hours_30d)
+```
+
+#### 2. Risco Acumulado de Fouling (`accumulated_fouling_risk`)
+
+```python
+accumulated_fouling_risk = pct_idle_recent × days_since_cleaning
+```
+
+- **Lógica**: Navios parados por mais tempo em águas paradas acumulam mais biofouling
+
+#### 3. Fator de Performance de Tinta (`paint_performance_factor`)
+
+```python
+if is_SPC and pct_idle_recent > 0.30:
+    paint_performance_factor = 0.80  # Penalidade de 20%
+else:
+    paint_performance_factor = 1.00
+```
+
+- **SPC (Self-Polishing Coating)**: Funciona melhor com movimento
+
+#### 4. Dias Desde Limpeza (`days_since_cleaning`)
+
+```python
+# Merge assíncrono com tabela de docagens
+days_since_cleaning = event_date - last_drydock_date
+```
+
+---
+
+## ⚙️ Cálculo do Consumo Baseline (Física)
+
+### Fórmula de Admiralty
+
+```python
+theoretical_power = (displacement^(2/3) × speed^3) / 10000
+baseline_consumption = theoretical_power × duration × efficiency_factor
+```
+
+### Calibração do Fator de Eficiência
+
+```python
+# Usando dados de navios "limpos" (< 90 dias desde docagem)
+if CALIBRATE_PER_SHIP:
+    efficiency_factor = median(consumption / (power × duration)) per ship
+else:
+    efficiency_factor = global_median
+```
+
+| Configuração                 | Valor     |
+| ---------------------------- | --------- |
+| `ADMIRALTY_SCALE_FACTOR`     | 10,000    |
+| `CALIBRATE_PER_SHIP`         | True      |
+| Dias para considerar "limpo" | < 90 dias |
+
+---
+
+## 📊 Cálculo do Índice de Biofouling
+
+### Função Sigmoid (Escala 0-1)
+
+```python
+bio_index = 1 / (1 + exp(-k × (excess_ratio - midpoint)))
+```
+
+| Parâmetro           | Valor    | Descrição                    |
+| ------------------- | -------- | ---------------------------- |
+| `SIGMOID_K`         | **10**   | Inclinação da curva          |
+| `SIGMOID_MIDPOINT`  | **0.10** | Ponto em que bio_index = 0.5 |
+| `USE_SIGMOID_SCALE` | True     | Usar sigmoid vs linear       |
+
+### Escala Final (0-10)
+
+```python
+bio_index_0_10 = bio_index × 10  # Arredondado para 1 casa decimal
+```
+
+### Classificação Qualitativa
+
+| Excess Ratio | Classificação |
+| ------------ | ------------- |
+| < 10%        | 🟢 Leve       |
+| 10% - 20%    | 🟡 Moderada   |
+| ≥ 20%        | 🔴 Severa     |
+
+---
+
+## 💰 Estimativas de Custo e Emissões
+
+### Parâmetros de Custo
+
+| Parâmetro                | Valor     | Unidade              |
+| ------------------------ | --------- | -------------------- |
+| `FUEL_PRICE_USD_PER_TON` | **500**   | USD/ton              |
+| `CO2_TON_PER_FUEL_TON`   | **3.114** | tCO₂/ton combustível |
+
+### Fórmulas
+
+```python
+additional_fuel_tons = baseline_consumption × target_excess_ratio
+additional_cost_usd = additional_fuel_tons × 500
+additional_co2_tons = additional_fuel_tons × 3.114
+```
+
+---
+
+## 📁 Dados de Entrada
+
+### Arquivos Necessários
+
+| Arquivo                       | Formato | Descrição          | Colunas Principais                                                                        |
+| ----------------------------- | ------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| `ResultadoQueryEventos.csv`   | CSV     | Eventos AIS        | shipName, sessionId, startGMTDate, speed, duration, displacement, midDraft, beaufortScale |
+| `ResultadoQueryConsumo.csv`   | CSV     | Consumo por sessão | SESSION_ID, CONSUMED_QUANTITY                                                             |
+| `Dados navios Hackathon.xlsx` | Excel   | Docagens e tintas  | Sheet: "Lista de docagens" → Navio, Docagem                                               |
+
+### Mapeamento de Colunas
+
+```python
+COL_SHIP_NAME = 'shipName'
+COL_START_DATE = 'startGMTDate'
+COL_SESSION_ID = 'sessionId'
+COL_SESSION_ID_CONSUMPTION = 'SESSION_ID'
+COL_CONSUMPTION = 'CONSUMED_QUANTITY'
+COL_SPEED = 'speed'
+COL_DURATION = 'duration'
+COL_DISPLACEMENT = 'displacement'
+COL_DRAFT = 'midDraft'
+COL_DOCAGEM_DATE = 'Docagem'
+COL_DOCAGEM_SHIP = 'Navio'
+COL_PAINT_TYPE = 'Tipo'
+```
+
+---
+
+## 🔀 Split de Dados
+
+| Conjunto      | Proporção         | Uso              |
+| ------------- | ----------------- | ---------------- |
+| **Treino**    | 80% (cronológico) | Ajuste do modelo |
+| **Validação** | 10% do treino     | Early stopping   |
+| **Teste**     | 20% (cronológico) | Avaliação final  |
+
+```python
+TRAIN_TEST_SPLIT_RATIO = 0.80
+VALIDATION_SPLIT_RATIO = 0.90  # 90% do treino para fit, 10% para validação
+```
+
+⚠️ **Split cronológico**: Não aleatório, respeita ordem temporal para evitar data leakage.
+
+---
+
+## 📈 Métricas de Performance
+
+### Métricas Calculadas
+
+| Métrica      | Fórmula                  | Descrição                 |
+| ------------ | ------------------------ | ------------------------- |
+| **RMSE**     | √(Σ(real - pred)² / n)   | Erro quadrático médio     |
+| **MAE**      | Σ\|real - pred\| / n     | Erro absoluto médio       |
+| **WMAPE**    | Σ\|real - pred\| / Σreal | Erro percentual ponderado |
+| **Accuracy** | 100 × (1 - WMAPE)        | Acurácia geral            |
+
+### Sanity Check (Validação de Impacto)
+
+```python
+# Compara predição para navio limpo vs sujo
+Cenário Limpo:  days_since_cleaning = 30
+Cenário Sujo:   days_since_cleaning = 400
+
+Biofouling Penalty = fuel_dirty - fuel_clean
+```
+
+---
+
+## 📤 Saídas do Modelo
+
+### 1. Relatório Detalhado (`biofouling_report.csv`)
+
+| Coluna               | Descrição                            |
+| -------------------- | ------------------------------------ |
+| shipName             | Nome do navio                        |
+| startGMTDate         | Data do evento                       |
+| sessionId            | ID da sessão                         |
+| CONSUMED_QUANTITY    | Consumo real (tons)                  |
+| baseline_consumption | Consumo esperado (tons)              |
+| target_excess_ratio  | Excesso percentual                   |
+| bio_index_0_10       | Índice de biofouling (0-10)          |
+| bio_class            | Classificação (Leve/Moderada/Severa) |
+| additional_fuel_tons | Combustível adicional                |
+| additional_cost_usd  | Custo adicional (USD)                |
+| additional_co2_tons  | CO₂ adicional (tons)                 |
+
+### 2. Resumo por Navio (`biofouling_summary_by_ship.csv`)
+
+| Coluna                    | Descrição                  |
+| ------------------------- | -------------------------- |
+| shipName                  | Nome do navio              |
+| avg_excess_ratio          | Média do excesso           |
+| max_excess_ratio          | Máximo excesso             |
+| num_events                | Número de eventos          |
+| avg_bio_index             | Índice médio               |
+| max_bio_index             | Índice máximo              |
+| total_baseline_fuel       | Total combustível baseline |
+| total_real_fuel           | Total combustível real     |
+| total_additional_fuel     | Total combustível extra    |
+| total_additional_cost_usd | Custo total extra          |
+| total_additional_co2      | CO₂ total extra            |
+
+### 3. Modelos Serializados
+
+| Arquivo                 | Descrição                       |
+| ----------------------- | ------------------------------- |
+| `modelo_final_v13.pkl`  | Modelo XGBoost treinado         |
+| `encoder_final_v13.pkl` | LabelEncoder para tipo de tinta |
+
+---
+
+## 🌐 Backend FastAPI (Microserviço)
+
+### Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      API Gateway                             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │   Biofouling Service    │ ← Este microserviço
+              │       (FastAPI)         │
+              └────────────┬────────────┘
+                           │
+     ┌─────────────────────┼─────────────────────┐
+     │                     │                     │
+┌────▼────┐         ┌──────▼──────┐       ┌──────▼──────┐
+│ Weather │         │   Vessel    │       │    Fuel     │
+│   API   │         │  Tracking   │       │   Prices    │
+└─────────┘         └─────────────┘       └─────────────┘
+```
+
+### Endpoints Principais
+
+| Método | Endpoint                       | Descrição                |
+| ------ | ------------------------------ | ------------------------ |
+| POST   | `/api/v1/predictions/`         | Predição única           |
+| POST   | `/api/v1/predictions/batch`    | Predições em lote        |
+| POST   | `/api/v1/predictions/scenario` | Comparação limpo vs sujo |
+| GET    | `/api/v1/ships/`               | Lista navios             |
+| GET    | `/api/v1/ships/fleet/summary`  | Resumo da frota          |
+| GET    | `/api/v1/reports/biofouling`   | Relatório completo       |
+| GET    | `/api/v1/reports/high-risk`    | Navios alto risco        |
+| GET    | `/api/v1/integrations/health`  | Status das integrações   |
+
+### Integrações Externas (Configuráveis)
+
+- **Weather API**: Condições marítimas em tempo real
+- **Vessel Tracking**: Posições AIS
+- **Fuel Prices**: Preços de bunker atualizados
+- **Maintenance API**: Histórico de docagens
+- **Emissions API**: Reporting IMO DCS/EU MRV
+
+---
+
+## 🔧 Configuração
+
+### Variáveis de Ambiente (`.env`)
+
+```env
+# APIs Externas (opcional)
+WEATHER_API_URL=
+WEATHER_API_KEY=
+VESSEL_API_URL=
+VESSEL_API_KEY=
+FUEL_API_URL=
+FUEL_API_KEY=
+
+# Observabilidade
+LOG_LEVEL=INFO
+OTEL_ENABLED=false
+METRICS_ENABLED=true
+```
+
+---
 
 ## 📁 Estrutura do Projeto
 
 ```
 ├── api/                          # Backend FastAPI
-│   ├── __init__.py
 │   ├── main.py                   # Aplicação principal
-│   ├── config.py                 # Configurações
+│   ├── config.py                 # Configurações (60+ parâmetros)
 │   ├── schemas.py                # Modelos Pydantic
-│   ├── services.py               # Serviços de negócio
-│   └── routes/                   # Rotas da API
+│   ├── services.py               # BiofoulingService, DataService
+│   ├── external_clients.py       # Clientes HTTP para APIs externas
+│   ├── integration_service.py    # Orquestrador de serviços
+│   └── routes/
 │       ├── predictions.py        # Endpoints de predição
 │       ├── ships.py              # Endpoints de navios
-│       └── reports.py            # Endpoints de relatórios
-├── src/                          # Código fonte do modelo
-│   ├── script.py                 # Script principal do modelo
-│   ├── analise_relatorio.py      # Análise dos relatórios gerados
-│   └── validacao_cientifica.py   # Validação científica do modelo
+│       ├── reports.py            # Endpoints de relatórios
+│       └── integrations.py       # Endpoints de integração
+├── src/
+│   ├── script.py                 # Script principal (662 linhas)
+│   ├── analise_relatorio.py      # Análise dos relatórios
+│   └── validacao_cientifica.py   # Validação científica
 ├── data/
-│   ├── raw/                      # Dados brutos de entrada
-│   │   ├── ResultadoQueryEventos.csv
-│   │   ├── ResultadoQueryConsumo.csv
-│   │   └── Dados navios Hackathon.xlsx
-│   └── processed/                # Dados processados (output)
-│       ├── biofouling_report.csv
-│       └── biofouling_summary_by_ship.csv
-├── models/                       # Modelos treinados
-│   ├── modelo_final_v13.pkl
-│   └── encoder_final_v13.pkl
-├── config/                       # Arquivos de configuração
-│   └── config_biofouling.json
-├── reports/                      # Relatórios e resumos
-├── docs/                         # Documentação e referências
-├── run_api.py                    # Script para iniciar a API
-├── requirements.txt              # Dependências Python
-└── README.md                     # Este arquivo
+│   ├── raw/                      # Dados brutos
+│   └── processed/                # Relatórios gerados
+├── models/                       # Modelos .pkl
+├── config/                       # config_biofouling.json
+├── reports/                      # Resumos texto/markdown
+├── docs/                         # Documentação adicional
+│   └── MICROSERVICES_ARCHITECTURE.md
+├── run_api.py                    # Iniciar API
+└── requirements.txt              # Dependências
 ```
 
-## 🚀 Instalação
+---
 
-1. Clone o repositório:
+## 🚀 Instalação e Execução
+
+### Requisitos
+
+- Python 3.8+
+- ~2GB RAM para treinamento
+- ~500MB para inferência
+
+### Instalação
 
 ```bash
 git clone https://github.com/marcio-loiola/modelo-transpetro-v2.git
 cd modelo-transpetro-v2
-```
-
-2. Crie um ambiente virtual:
-
-```bash
 python -m venv .venv
 .venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Linux/Mac
-```
-
-3. Instale as dependências:
-
-```bash
 pip install -r requirements.txt
 ```
 
-## 💻 Uso
-
-### Treinar o Modelo
-
-Execute o script principal para treinar o modelo:
+### Treinar Modelo
 
 ```bash
 python src/script.py
 ```
 
-O script irá:
-
-1. Carregar os dados de eventos e consumo
-2. Realizar engenharia de features
-3. Treinar o modelo XGBoost
-4. Gerar relatórios de biofouling
-
-### Iniciar a API
-
-Execute o servidor FastAPI:
+### Iniciar API
 
 ```bash
 python run_api.py
+# ou
+uvicorn api.main:app --reload --port 8000
 ```
 
-Ou diretamente com uvicorn:
+---
 
-```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-```
+## 📊 Dependências
 
-A API estará disponível em:
+| Pacote       | Versão | Uso                      |
+| ------------ | ------ | ------------------------ |
+| pandas       | ≥1.5   | Manipulação de dados     |
+| numpy        | ≥1.24  | Computação numérica      |
+| xgboost      | ≥1.7   | Modelo ML                |
+| scikit-learn | ≥1.2   | Métricas e preprocessing |
+| matplotlib   | ≥3.6   | Visualizações            |
+| joblib       | ≥1.2   | Serialização de modelos  |
+| openpyxl     | ≥3.1   | Leitura de Excel         |
+| fastapi      | ≥0.109 | Framework web            |
+| uvicorn      | ≥0.27  | Servidor ASGI            |
+| pydantic     | ≥2.5   | Validação de dados       |
+| httpx        | ≥0.27  | Cliente HTTP async       |
 
-- **Documentação Swagger**: http://localhost:8000/docs
-- **Documentação ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
+---
 
-## 🔌 API Endpoints
+## 🔄 Comparativo para Análise
 
-### Predições
+### Resumo Técnico para Comparação
 
-| Método | Endpoint                       | Descrição                              |
-| ------ | ------------------------------ | -------------------------------------- |
-| POST   | `/api/v1/predictions/`         | Predição de biofouling para uma viagem |
-| POST   | `/api/v1/predictions/batch`    | Predições em lote                      |
-| POST   | `/api/v1/predictions/scenario` | Comparação de cenários (limpo vs sujo) |
+| Aspecto               | Este Modelo                        |
+| --------------------- | ---------------------------------- |
+| **Algoritmo**         | XGBoost Regressor                  |
+| **Target**            | Excess Ratio (consumo adicional %) |
+| **Features**          | 8 (5 numéricas + 3 derivadas)      |
+| **Baseline**          | Fórmula de Admiralty calibrada     |
+| **Índice Biofouling** | Sigmoid (0-1) → escala 0-10        |
+| **Split**             | 80/20 cronológico                  |
+| **Regularização**     | L1 (α=1.0) + L2 (λ=2.0)            |
+| **Early Stopping**    | Sim (30 rounds)                    |
+| **Calibração**        | Per-ship efficiency factor         |
+| **Custos**            | USD 500/ton combustível            |
+| **Emissões**          | 3.114 tCO₂/ton combustível         |
 
-### Navios
-
-| Método | Endpoint                            | Descrição                     |
-| ------ | ----------------------------------- | ----------------------------- |
-| GET    | `/api/v1/ships/`                    | Lista todos os navios         |
-| GET    | `/api/v1/ships/{ship_name}`         | Detalhes de um navio          |
-| GET    | `/api/v1/ships/{ship_name}/summary` | Resumo de biofouling do navio |
-| GET    | `/api/v1/ships/fleet/summary`       | Resumo da frota completa      |
-
-### Relatórios
-
-| Método | Endpoint                            | Descrição                           |
-| ------ | ----------------------------------- | ----------------------------------- |
-| GET    | `/api/v1/reports/biofouling`        | Relatório de biofouling com filtros |
-| GET    | `/api/v1/reports/biofouling/export` | Exportar relatório em CSV           |
-| GET    | `/api/v1/reports/statistics`        | Estatísticas gerais                 |
-| GET    | `/api/v1/reports/high-risk`         | Navios com alto risco de biofouling |
-
-### Exemplo de Requisição
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/predictions/" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ship_name": "NAVIO EXEMPLO",
-    "speed": 12.5,
-    "duration": 24.0,
-    "days_since_cleaning": 180,
-    "displacement": 50000,
-    "beaufort_scale": 3
-  }'
-```
-
-### Exemplo de Resposta
-
-```json
-{
-  "ship_name": "NAVIO EXEMPLO",
-  "status": "success",
-  "predicted_consumption": 45.23,
-  "baseline_consumption": 42.1,
-  "excess_ratio": 0.0743,
-  "bio_index": 4.2,
-  "bio_class": "Leve",
-  "additional_fuel_tons": 3.13,
-  "additional_cost_usd": 1565.0,
-  "additional_co2_tons": 9.75,
-  "model_version": "v13"
-}
-```
-
-## 📊 Parâmetros do Algoritmo
-
-O modelo utiliza diversos parâmetros configuráveis na classe `Config`:
-
-| Categoria           | Parâmetro                | Descrição                                                |
-| ------------------- | ------------------------ | -------------------------------------------------------- |
-| Feature Engineering | `IDLE_SPEED_THRESHOLD`   | Velocidade limite para considerar navio parado (5.0 nós) |
-| Feature Engineering | `ROLLING_WINDOW_DAYS`    | Janela de média móvel (30 dias)                          |
-| Modelo              | `n_estimators`           | Número de árvores XGBoost (300)                          |
-| Modelo              | `learning_rate`          | Taxa de aprendizado (0.03)                               |
-| Modelo              | `max_depth`              | Profundidade máxima das árvores (5)                      |
-| Biofouling          | `SIGMOID_MIDPOINT`       | Ponto médio da curva sigmoid (10%)                       |
-| Custos              | `FUEL_PRICE_USD_PER_TON` | Preço do combustível (500 USD/ton)                       |
-
-## 📈 Métricas de Performance
-
-O modelo é avaliado usando:
-
-- **RMSE** - Root Mean Square Error
-- **MAE** - Mean Absolute Error
-- **WMAPE** - Weighted Mean Absolute Percentage Error
-- **Accuracy** - Acurácia geral do modelo
-
-## 📝 Saídas
-
-1. **biofouling_report.csv** - Relatório detalhado por evento
-
-   - Índice de biofouling (0-10)
-   - Classificação (Leve, Moderada, Severa)
-   - Custo adicional estimado
-   - Emissões extras de CO₂
-
-2. **biofouling_summary_by_ship.csv** - Resumo agregado por navio
-   - Média e máximo do índice de biofouling
-   - Total de combustível adicional
-   - Custo total e emissões totais
+---
 
 ## 👥 Autor
 
-**Marcio Loiola**
+**Marcio Loiola** - [GitHub](https://github.com/marcio-loiola)
 
 ## 📄 Licença
 
-Este projeto foi desenvolvido para o Hackathon Transpetro 2024.
+Desenvolvido para o **Hackathon Transpetro 2024**.
