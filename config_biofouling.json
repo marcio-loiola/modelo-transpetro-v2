@@ -1,0 +1,145 @@
+{
+  "project": {
+    "name": "Biofouling Prediction Model",
+    "version": "1.3.0",
+    "description": "Modelo de predição de bioincrustação para frota marítima (Hackathon Transpetro)",
+    "language": "python",
+    "framework": "XGBoost"
+  },
+  "files": {
+    "input": {
+      "events": "ResultadoQueryEventos.csv",
+      "consumption": "ResultadoQueryConsumo.csv",
+      "drydock": "Dados navios Hackathon.xlsx",
+      "paint": "Dados navios Hackathon.xlsx - Especificacao revestimento.csv"
+    },
+    "output": {
+      "model": "modelo_final_v13.pkl",
+      "encoder": "encoder_final_v13.pkl",
+      "report": "biofouling_report.csv",
+      "summary": "biofouling_summary_by_ship.csv"
+    },
+    "sheets": {
+      "drydock": "Lista de docagens",
+      "paint": "Especificacao revestimento"
+    }
+  },
+  "columns": {
+    "ship_name": "shipName",
+    "start_date": "startGMTDate",
+    "session_id": "sessionId",
+    "session_id_consumption": "SESSION_ID",
+    "consumption": "CONSUMED_QUANTITY",
+    "speed": "speed",
+    "duration": "duration",
+    "displacement": "displacement",
+    "draft": "midDraft",
+    "docagem_date": "Docagem",
+    "docagem_ship": "Navio",
+    "paint_type": "Tipo"
+  },
+  "thresholds": {
+    "idle_speed": 5.0,
+    "min_consumption": 0.1,
+    "paint_penalty_threshold": 0.3,
+    "paint_penalty_factor": 0.8,
+    "admiralty_scale_factor": 10000.0
+  },
+  "biofouling": {
+    "bio_reference": null,
+    "bio_reference_percentile": 0.75,
+    "use_sigmoid_scale": true,
+    "sigmoid_k": 10,
+    "sigmoid_midpoint": 0.1,
+    "calibrate_per_ship": true,
+    "classification": {
+      "leve": { "min": null, "max": 0.1 },
+      "moderada": { "min": 0.1, "max": 0.2 },
+      "severa": { "min": 0.2, "max": null }
+    }
+  },
+  "cost_emissions": {
+    "fuel_price_usd_per_ton": 500,
+    "co2_ton_per_fuel_ton": 3.114
+  },
+  "model": {
+    "algorithm": "XGBRegressor",
+    "target": "target_excess_ratio",
+    "train_test_split": 0.8,
+    "validation_split": 0.9,
+    "parameters": {
+      "objective": "reg:squarederror",
+      "n_estimators": 300,
+      "learning_rate": 0.03,
+      "max_depth": 5,
+      "min_child_weight": 10,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "reg_alpha": 1.0,
+      "reg_lambda": 2.0,
+      "n_jobs": -1,
+      "random_state": 42,
+      "early_stopping_rounds": 30
+    },
+    "features": [
+      "speed",
+      "beaufortScale",
+      "days_since_cleaning",
+      "pct_idle_recent",
+      "accumulated_fouling_risk",
+      "historical_avg_speed",
+      "paint_x_speed",
+      "paint_encoded"
+    ]
+  },
+  "processing": {
+    "rolling_window_days": "30D",
+    "consumption_quantile_min": 0.01,
+    "consumption_quantile_max": 0.99,
+    "excess_ratio_min": -0.5,
+    "excess_ratio_max": 1.0,
+    "clean_ship_threshold_days": 90
+  },
+  "formulas": {
+    "theoretical_power": "(displacement^(2/3) * speed^3) / scale_factor",
+    "baseline_consumption": "theoretical_power * duration * efficiency_factor",
+    "excess_ratio": "(real_consumption - baseline) / baseline",
+    "bio_index_sigmoid": "1 / (1 + exp(-k * (ER - midpoint)))",
+    "bio_index_linear": "(ER / bio_reference).clip(0, 1)",
+    "additional_fuel": "baseline * excess_ratio",
+    "additional_cost": "additional_fuel * fuel_price",
+    "additional_co2": "additional_fuel * co2_factor"
+  },
+  "scientific_references": [
+    {
+      "author": "Schultz, M.P.",
+      "year": 2007,
+      "title": "Effects of coating roughness and biofouling on ship resistance and powering",
+      "journal": "Biofouling",
+      "doi": "10.1080/08927010701461974"
+    },
+    {
+      "author": "Schultz, M.P. et al.",
+      "year": 2011,
+      "title": "Economic impact of biofouling on a naval surface ship",
+      "journal": "Biofouling",
+      "doi": "10.1080/08927014.2010.542809"
+    },
+    {
+      "author": "Lindholdt, A. et al.",
+      "year": 2015,
+      "title": "Effects of biofouling development on drag forces of hull coatings",
+      "journal": "Journal of Coatings Technology and Research",
+      "doi": "10.1007/s11998-014-9651-2"
+    },
+    {
+      "standard": "ISO 19030:2016",
+      "title": "Ships and marine technology - Measurement of changes in hull and propeller performance"
+    }
+  ],
+  "metadata": {
+    "created": "2025-11-29",
+    "author": "GitHub Copilot",
+    "hackathon": "Transpetro"
+  }
+}

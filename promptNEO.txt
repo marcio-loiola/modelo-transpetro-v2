@@ -1,0 +1,78 @@
+Este prompt é desenhado para um Engenheiro de Data Science e Engenharia Naval, com o objetivo de construir e treinar um modelo de Machine Learning (XGBoost) para prever o nível de degradação de desempenho causado pela bioincrustação, utilizando o Excess Ratio (ER) ou um Fouling Factor como variável alvo.
+
+--------------------------------------------------------------------------------
+PROMPT PARA CRIAÇÃO DE MODELO PREDITIVO DE BIOINCRUSTAÇÃO (XGBOOST)
+Função do Modelo: Regressão/Classificação Supervisionada. Objetivo: Construir e otimizar um modelo XGBoost (Extreme Gradient Boosting) para prever o Excess Ratio (ER) ou o Fouling Factor (FF) de embarcações, correlacionando condições operacionais e ambientais com a perda de eficiência hidrodinâmica causada pela bioincrustação.
+1. Preparação e Limpeza dos Dados (Pré-processamento)
+Ação: Carregar, unificar e pré-processar o dataset histórico de telemetria, logbook e inspeções.
+1. Filtragem de Outliers e Normalização: Filtrar dados de operação para remover outliers de manobras, aceleração/desaceleração, e condições metoceanas extremas, para garantir a robustez na avaliação da condição de casco.
+    ◦ Variáveis de Filtro: Linear Acceleration, Turning Acceleration, Wind Speed, Wave Height, Wave Period, seaCondition.
+2. Engenharia de Features: Criar variáveis cruciais que capturam a pressão da bioincrustação:
+    ◦ Days Since Cleaning / Inatividade Acumulada: Calcular o número de dias desde a última limpeza/docagem (days_since_cleaning ou Data da aplicacao).
+    ◦ Pressão de Fouling Ambiental (FP): Se disponível, utilizar o Fouling Pressure (FP ou uma proxy como temperatura da água e tempo em porto).
+3. Codificação e Escalonamento: Aplicar one-hot encoding para variáveis categóricas (como Classe, Porto, DESCRIPTION do combustível) e escalonar variáveis numéricas contínuas (e.g., Speed, CONSUMED_QUANTITY, Draft) usando MinMaxScaler ou método similar.
+2. Definição da Variável Alvo e Baseline
+Ação: Estabelecer a linha de base e calcular o Excess Ratio (ER) para cada evento operacional.
+1. Cálculo do Baseline (C 
+baseline
+​
+ ): Para cada evento, determinar o consumo de combustível esperado ou potência esperada (C 
+baseline
+​
+ ) se o casco estivesse limpo, corrigindo para a velocidade (V), calado e trim. Utilizar Curvas de Teste de Mar ou Histórico Pós-Docagem como referência para o desempenho ideal.
+2. Cálculo da Variável Alvo (Y): Calcular o Excess Ratio (ER) para cada evento: 
+ER= 
+C 
+baseline
+​
+ 
+C 
+real
+​
+ −C 
+baseline
+​
+ 
+​
+ (167)
+ Alternativa (Classificação): Converter o ER em uma escala categórica de Fouling Factor (FF) (e.g., 0-10) ou em classes de severidade (Leve, Moderada, Pesada), onde ER≥0,20 (20% de consumo extra) indica a classe Pesada/Severa.
+3. Configuração e Treinamento do Modelo XGBoost
+Ação: Configurar o pipeline de treinamento, otimizar hiperparâmetros e treinar o modelo.
+1. Seleção do Modelo: Utilizar o algoritmo XGBoost (Extreme Gradient Boosting), reconhecido por seu alto poder preditivo.
+2. Divisão do Dataset: Dividir o dataset em conjuntos de Treinamento (80%) e Teste (20%), garantindo uma partição balanceada se a tarefa for classificação de severidade (FF).
+3. Otimização (Tuning): Realizar o tunning dos hiperparâmetros do XGBoost (ex: learning_rate, max_depth, n_estimators) usando validação cruzada (e.g., 5 folds) e GridSearch para encontrar a configuração ótima.
+4. Treinamento: Treinar o modelo XGBoost utilizando o Excess Ratio (ER) ou Fouling Factor (FF) como variável dependente (Y), e as variáveis operacionais/ambientais como preditores (X).
+4. Avaliação e Interpretação
+Ação: Avaliar o desempenho do modelo e extrair a importância das features.
+1. Métricas de Desempenho: Se regressão (ER), usar RMSE. Se classificação (FF), usar AUC, Acurácia Balanceada e Precisão na Classe Minoritária (Severa).
+2. Interpretabilidade: Analisar o Feature Importance (Importância dos Atributos) fornecido pelo XGBoost para confirmar quais variáveis (Velocidade, Tempo Ocioso, Temperatura) são as mais críticas para a predição da bioincrustação, alinhando-se à literatura.
+
+--------------------------------------------------------------------------------
+Fontes Principais para Basear o Cálculo e a Metodologia
+Os cálculos e a metodologia de modelagem preditiva baseiam-se nos seguintes conceitos e fontes:
+Conceito-Chave
+Fontes e Detalhes
+Excess Ratio (ER)
+Métrica operacional central que quantifica a perda de desempenho e traduz a deterioração hidrodinâmica em custo. Fórmula: ER=(C 
+real
+​
+ −C 
+baseline
+​
+ )/C 
+baseline
+​
+ .
+Linha de Base (C 
+baseline
+​
+ )
+Necessidade de estabelecer o consumo esperado para um casco limpo, normalizado por condições operacionais (velocidade, calado). Pode ser derivado de testes de mar ou históricos pós-docagem.
+Modelagem Preditiva (ML)
+O uso de Data-Driven Models (DDMs), incluindo técnicas de Machine Learning como XGBoost e Random Forest, é o método mais eficaz e custo-eficiente para estimar o impacto do fouling ao longo do tempo.
+Limiares de Severidade
+O limiar de ER≥0,20 (20% de consumo extra) é o limite usado para classificar a condição como Bioincrustação Pesada (Macroincrustação) em modelos de gestão e estudos econômicos. Penalidades de 10% já são induzidas apenas por microfouling (slime).
+Variáveis Cruciais
+O modelo deve ser calibrado com variáveis que refletem o tempo de permanência em porto em zonas tropicais e a temperatura da água, pois o crescimento biológico é acelerado nesses ambientes, sendo um fator de alto risco para frotas brasileiras.
+Dados Necessários
+Os dados de sensores (potência, consumo, velocidade) e ambientais (vento, onda, altura da onda) são essenciais para calcular o ER e isolar o efeito da incrustação.

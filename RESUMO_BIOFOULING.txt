@@ -1,0 +1,490 @@
+================================================================================
+         RESUMO DO PROCESSO DE CALCULO DO NIVEL DE BIOINCRUSTACAO
+================================================================================
+
+1. OBJETIVO
+--------------------------------------------------------------------------------
+
+Quantificar o nivel de bioincrustacao (biofouling) dos navios da frota, estimando:
+
+  - O consumo extra de combustivel causado pela incrustacao do casco
+  - O custo financeiro adicional (USD)
+  - As emissoes adicionais de CO2 (toneladas)
+  - Uma classificacao qualitativa do estado do casco (Leve / Moderada / Severa)
+
+
+2. DADOS UTILIZADOS
+--------------------------------------------------------------------------------
+
+  Arquivo                         Descricao
+  ------------------------------  ------------------------------------------------
+  ResultadoQueryEventos.csv       Eventos de navegacao (velocidade, duracao, 
+                                  calado, deslocamento, escala Beaufort, etc.)
+  ResultadoQueryConsumo.csv       Consumo de combustivel por sessao 
+                                  (SESSION_ID, CONSUMED_QUANTITY)
+  Dados navios Hackathon.xlsx     Datas de docagem (limpeza) e especificacao 
+                                  de revestimento/tinta
+
+
+3. PIPELINE DE PROCESSAMENTO
+--------------------------------------------------------------------------------
+
+  +---------------------------------------------------------------+
+  |  1. CARGA DOS DADOS                                           |
+  |     - Leitura de CSVs e Excel                                 |
+  |     - Agregacao de consumo por SESSION_ID (soma)              |
+  |     - Normalizacao de nomes de navios (uppercase, trim)       |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  2. MERGE DOS DATASETS                                        |
+  |     - Eventos <-> Consumo (por sessionId)                     |
+  |     - Eventos <-> Tipo de tinta (por shipName)                |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  3. CALCULO DE days_since_cleaning                            |
+  |     - Para cada evento, encontra a ultima docagem anterior    |
+  |     - Usa merge_asof (vetorizado) para performance            |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  4. CALCULO DO CONSUMO BASELINE (casco limpo)                 |
+  |     - Formula do Coeficiente do Almirantado (fisica)          |
+  |     - Calibracao POR NAVIO com dados pos-docagem (< 90 dias)  |
+  |     - Fallback global para navios sem dados limpos            |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  5. CALCULO DO EXCESS RATIO (ER)                              |
+  |     - ER = (Consumo_real - Consumo_baseline) / Consumo_baseline|
+  |     - Representa a fracao de consumo extra                    |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  6. INDICE E CLASSIFICACAO                                    |
+  |     - BIO_REFERENCE dinamico (percentil 75 do ER)             |
+  |     - bio_index via funcao SIGMOID (transicao suave)          |
+  |     - bio_index_0_10 = bio_index x 10                         |
+  |     - Classificacao: Leve / Moderada / Severa                 |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  7. CUSTO E EMISSOES                                          |
+  |     - Combustivel extra = baseline x ER                       |
+  |     - Custo extra = combustivel extra x preco (500 USD/t)     |
+  |     - CO2 extra = combustivel extra x 3.114 tCO2/t            |
+  +---------------------------------------------------------------+
+                                |
+                                v
+  +---------------------------------------------------------------+
+  |  8. EXPORTACAO DE RELATORIOS                                  |
+  |     - biofouling_report.csv (detalhe por evento)              |
+  |     - biofouling_summary_by_ship.csv (agregado por navio)     |
+  +---------------------------------------------------------------+
+
+
+4. FORMULAS UTILIZADAS
+--------------------------------------------------------------------------------
+
+4.1 Potencia Teorica (Coeficiente do Almirantado)
+
+    P_teorica = (D^(2/3) x V^3) / C_A
+
+    Onde:
+      D   = Deslocamento (toneladas) - se indisponivel, usa midDraft x 10.000
+      V   = Velocidade (nos)
+      C_A = Fator de escala do Almirantado (10.000)
+
+4.2 Consumo Baseline (Casco Limpo)
+
+    C_baseline = P_teorica x duracao x eta_navio
+
+    Onde:
+      eta_navio = Fator de eficiencia calibrado POR NAVIO
+                  (mediana do consumo real / potencia teorica para eventos
+                  com < 90 dias desde a limpeza daquele navio especifico)
+      Fallback global: eta ~ 0.004158
+      Total de navios com calibracao individual: 21
+
+4.3 Excess Ratio (Nivel de Bioincrustacao)
+
+    ER = (C_real - C_baseline) / C_baseline
+
+      ER = 0     -> Consumo igual ao esperado (casco limpo)
+      ER = 0.15  -> 15% de consumo extra
+      ER = 0.50  -> 50% de consumo extra (incrustacao severa)
+
+4.4 Indice Normalizado (0-10) - Escala Sigmoid
+
+    bio_index = 1 / (1 + e^(-k(ER - m)))
+
+    Onde:
+      k = 10   (fator de inclinacao)
+      m = 0.10 (ponto medio - bio_index = 0.5 quando ER = 10%)
+
+    Referencia dinamica:
+      R_ref = Percentil 75 do ER no dataset
+      Valor calculado: 22.2% (varia conforme os dados)
+
+    bio_index_0_10 = round(bio_index x 10, 1)
+
+4.5 Custo e Emissoes Adicionais
+
+    Delta_fuel = C_baseline x ER
+    Custo_USD  = Delta_fuel x P_fuel
+    Delta_CO2  = Delta_fuel x 3.114
+
+    Onde:
+      P_fuel = Preco do combustivel (configurado: 500 USD/t)
+      3.114  = Fator de emissao de CO2 por tonelada de HFO/LSHFO
+
+
+5. CLASSIFICACAO QUALITATIVA
+--------------------------------------------------------------------------------
+
+  Classificacao   Excess Ratio (ER)   Indice 0-10   Descricao
+  -------------   -----------------   -----------   --------------------------
+  Leve            < 10%               < 5.0         Microincrustacao (biofilme)
+  Moderada        10% - 20%           5.0 - 10.0    Inicio de macroincrustacao
+  Severa          >= 20%              10.0          Macroincrustacao pesada
+
+  Trigger recomendado para limpeza: ER entre 10%-15%
+
+
+6. ARQUIVOS GERADOS
+--------------------------------------------------------------------------------
+
+6.1 biofouling_report.csv (Detalhe por evento de navegacao)
+
+  Coluna                   Descricao
+  -----------------------  ------------------------------------
+  shipName                 Nome do navio
+  startGMTDate             Data/hora do evento
+  sessionId                ID da sessao
+  CONSUMED_QUANTITY        Consumo real (t)
+  baseline_consumption     Consumo esperado casco limpo (t)
+  target_excess_ratio      Excess Ratio (ER)
+  bio_index_0_10           Indice de bioincrustacao (0-10)
+  bio_class                Classificacao (Leve/Moderada/Severa)
+  additional_fuel_tons     Combustivel extra (t)
+  additional_cost_usd      Custo extra (USD)
+  additional_co2_tons      CO2 extra (t)
+
+6.2 biofouling_summary_by_ship.csv (Resumo agregado por navio)
+
+  Coluna                       Descricao
+  ---------------------------  ----------------------------------
+  shipName                     Nome do navio
+  avg_excess_ratio             Media do ER
+  max_excess_ratio             Maior ER registrado
+  num_events                   Numero de eventos
+  avg_bio_index                Media do indice 0-10
+  max_bio_index                Maior indice 0-10
+  total_baseline_fuel          Total de consumo baseline (t)
+  total_real_fuel              Total de consumo real (t)
+  total_additional_fuel        Total de combustivel extra (t)
+  total_additional_cost_usd    Custo total extra (USD)
+  total_additional_co2         Emissoes totais extras de CO2 (t)
+
+
+7. MODELO PREDITIVO (XGBoost)
+--------------------------------------------------------------------------------
+
+Alem do calculo direto do ER, o script treina um modelo XGBoost para prever
+o target_excess_ratio com base em features operacionais:
+
+  Feature                      Descricao
+  ---------------------------  -----------------------------------------------
+  speed                        Velocidade do navio (nos)
+  beaufortScale                Escala Beaufort (condicao do mar)
+  days_since_cleaning          Dias desde ultima docagem
+  pct_idle_recent              % de tempo em baixa velocidade (ultimos 30 dias)
+  accumulated_fouling_risk     Risco acumulado = pct_idle x days_since_cleaning
+  historical_avg_speed         Velocidade media historica (ultimos 10 eventos)
+  paint_x_speed                Interacao tipo de tinta x velocidade
+  paint_encoded                Tipo de tinta (codificado)
+
+7.1 Metricas do Modelo (ultima execucao)
+
+  Metrica    Valor
+  --------   ---------
+  RMSE       8.04 tons
+  MAE        5.68 tons
+  WMAPE      20.45%
+  Accuracy   79.55%
+
+7.2 Importancia das Features
+
+  Feature                     Importancia
+  --------------------------  -----------
+  speed                       44.2%
+  paint_encoded               21.9%
+  paint_x_speed               21.1%
+  days_since_cleaning          5.1%
+  accumulated_fouling_risk     2.3%
+  historical_avg_speed         2.1%
+  pct_idle_recent              2.1%
+  beaufortScale                1.1%
+
+
+8. REFERENCIA REGULATORIA
+--------------------------------------------------------------------------------
+
+A Portaria DPC/DGN/MB 180/2025 exige:
+
+  - Plano de Gestao de Bioincrustacoes (BMP)
+  - Livro de Registro de Bioincrustacoes (BRB)
+  - Niveis de bioincrustacao abaixo dos limites para transitar entre 
+    regioes biogeograficas
+  - Multa maxima: R$ 2.000.000 (vigencia: 01/02/2026)
+
+
+9. COMO EXECUTAR
+--------------------------------------------------------------------------------
+
+  cd "C:\Users\Usuario\Downloads\dados-transpetro"
+  python script.py
+
+9.1 Configuracoes ajustaveis (em Config no script.py)
+
+  Parametro                    Valor Padrao   Descricao
+  ---------------------------  -------------  -----------------------------------
+  BIO_REFERENCE                None           None = dinamico (P75), ou fixo
+  BIO_REFERENCE_PERCENTILE     0.75           Percentil usado quando None
+  USE_SIGMOID_SCALE            True           Sigmoid (suave) ou linear
+  SIGMOID_K                    10             Inclinacao da sigmoid
+  SIGMOID_MIDPOINT             0.10           ER onde bio_index = 0.5
+  CALIBRATE_PER_SHIP           True           Calibrar eta por navio
+  FUEL_PRICE_USD_PER_TON       500            Preco do combustivel (USD/t)
+  CO2_TON_PER_FUEL_TON         3.114          Fator de emissao CO2
+
+
+10. RESUMO VISUAL
+--------------------------------------------------------------------------------
+
+            NAVIO LIMPO                         NAVIO INCRUSTADO
+            -----------                         ----------------
+
+            +---------+                         +---------+
+            |   __    |                         |  __###  |
+            |  /  \   |                         | /##\##  |
+            | |    |  |                         ||####|#  |
+            +---------+                         +---------+
+                 |                                   |
+                 v                                   v
+            Arrasto BAIXO                       Arrasto ALTO
+            Consumo BASE                        Consumo +20-50%
+            ER ~ 0%                             ER ~ 20-50%
+            bio_index ~ 0                       bio_index ~ 10
+            Classe: Leve                        Classe: Severa
+
+
+11. HISTORICO DE MODIFICACOES NO SCRIPT
+--------------------------------------------------------------------------------
+
+11.1 Estado Original do Script
+
+  Aspecto                         Comportamento Original
+  ------------------------------  ----------------------------------------
+  Caminho dos dados               Fixo em Raw_Data/ - falhava se arquivos
+                                  estivessem na raiz
+  Tratamento de erros             sys.exit(1) sem mensagem
+  Consumo duplicado               Multiplas linhas por SESSION_ID
+  days_since_cleaning             Calculado com apply() linha-a-linha
+  Indice de bioincrustacao        Nao existia
+  Classificacao qualitativa       Nao existia
+  Custo e emissoes                Nao calculados
+  Relatorios CSV                  Nao gerados
+  Resumo por navio                Nao gerado
+
+11.2 Modificacoes Aplicadas
+
+  Correcao 1: Fallback para DATA_DIR
+  Correcao 2: Log de erro em load_data()
+  Correcao 3: Protecao contra NaN em calculate_theoretical_power()
+  Melhoria A: Agregacao de consumo por SESSION_ID
+  Melhoria B: Vetorizacao de days_since_cleaning
+  Melhoria C: Calculo do Indice de Bioincrustacao
+  Melhoria D: Calculo de Custo e Emissoes
+  Melhoria E: Exportacao de Relatorios CSV
+
+11.3 Comparacao: Antes vs Depois
+
+  Aspecto                          Antes                  Depois
+  -------------------------------  ---------------------  ----------------------
+  Arquivos gerados                 2 (modelo .pkl)        4 (modelo + 2 CSVs)
+  Indice de bioincrustacao         Nao                    bio_index_0_10 (0-10)
+  Classificacao                    Nao                    Leve/Moderada/Severa
+  Custo estimado                   Nao                    USD por evento/navio
+  Emissoes CO2                     Nao                    Toneladas por evento
+  Resumo por navio                 Nao                    summary_by_ship.csv
+  Performance                      Lento (apply)          Rapido (merge_asof)
+  Duplicacao de consumo            Sim                    Nao (agregado)
+  Robustez de caminhos             Falha sem Raw_Data     Funciona em ambos
+  Mensagens de erro                Silenciosas            Visiveis no console
+
+
+12. MELHORIAS v2 - AJUSTES DE PRECISAO
+--------------------------------------------------------------------------------
+
+12.1 Problema: Limitacoes da Versao Anterior
+
+  Limitacao                      Impacto
+  -----------------------------  -------------------------------------------
+  BIO_REFERENCE fixo (20%)       Valor arbitrario, nao adaptado aos dados
+  Escala linear                  Transicoes abruptas nos limites
+  eta global                     Um unico fator para toda a frota
+
+12.2 Ajustes Implementados
+
+  Ajuste 1: BIO_REFERENCE Dinamico (usa percentil 75 = 22.2%)
+  Ajuste 2: Escala Sigmoid para bio_index (transicao suave)
+  Ajuste 3: Calibracao de eta por Navio (21 navios individuais)
+
+12.3 Comparacao de Resultados
+
+  Metrica                          Antes (v1)     Depois (v2)
+  -------------------------------  -------------  -------------
+  BIO_REFERENCE                    20% (fixo)     22.2% (P75)
+  bio_index scale                  Linear         Sigmoid
+  Calibracao eta                   Global         Por navio
+  RMSE                             8.04           8.65
+  days_since_cleaning importance   5.1%           8.1% (+59%)
+
+
+13. VALIDACAO CIENTIFICA - PERGUNTAS PARA FONTES ACADEMICAS
+--------------------------------------------------------------------------------
+
+13.1 Referencias Principais
+
+  Fonte                     DOI
+  ------------------------  ----------------------------
+  Schultz (2007)            10.1080/08927010701461974
+  Schultz et al. (2011)     10.1080/08927014.2010.542809
+  Lindholdt et al. (2015)   10.1007/s11998-014-9651-2
+  ISO 19030:2016            -
+  IMO MEPC.1/Circ.815       -
+  BIMCO (2022)              -
+
+13.2 Hipoteses Cientificas e Perguntas de Validacao
+
+  H1: Correlacao ER x Tempo desde Limpeza
+      Pergunta: O ER aumenta com o tempo desde a ultima limpeza?
+      Esperado: Correlacao positiva (r > 0.15)
+      Fonte: Schultz (2007), ISO 19030
+
+  H2: Magnitude do ER por Faixa Temporal
+      Pergunta: O ER medio esta dentro das faixas esperadas?
+      Esperado: 0-90d: <10% | 90-180d: 10-25% | 180-365d: 15-35% | >365d: >25%
+      Fonte: Schultz (2007), Lindholdt (2015)
+
+  H3: Efeito da Velocidade no ER
+      Pergunta: Navios em alta velocidade tem ER menor?
+      Esperado: ER(speed>12) < ER(speed<8)
+      Fonte: Schultz (2011), Lindholdt (2015)
+
+  H4: Proporcao de ER Negativo
+      Pergunta: A proporcao de eventos com ER < 0 e aceitavel?
+      Esperado: < 40% dos eventos
+      Fonte: ISO 19030
+
+  H5: Efeito do Tempo de Inatividade
+      Pergunta: Navios com maior tempo parado tem maior ER?
+      Esperado: Correlacao positiva
+      Fonte: Schultz (2007), IMO Guidelines
+
+  H6: Impacto do Tipo de Tinta
+      Pergunta: Tintas SPC resultam em menor ER?
+      Esperado: ER(SPC) < ER(CDP)
+      Fonte: Lindholdt (2015)
+
+13.3 Resultados da Validacao (Dados Atuais)
+
+  Script de validacao: validacao_cientifica.py
+
+  H2: Distribuicao por Classificacao
+      Leve (< 10%): 7569 eventos (65.4%) - ER medio: -19.3%
+      Moderada (10-20%): 932 eventos (8.1%) - ER medio: 14.8%
+      Severa (>= 20%): 3074 eventos (26.6%) - ER medio: 49.3%
+      Status: [OK] Distribuicao plausivel
+
+  H4: Distribuicao do Excess Ratio
+      Media: 1.70%
+      Mediana: -4.91%
+      Desvio Padrao: 34.74%
+      Status: [ATENCAO] Distribuicao moderadamente assimetrica
+
+  H5: Proporcao de ER Negativo
+      Eventos com ER < 0: 6408 (55.4%)
+      Status: [PROBLEMA] Baseline pode estar superestimado
+
+  H7: Distribuicao do bio_index
+      Indice 0-3 (baixo): 57.2%
+      Indice 4-6 (medio): 11.9%
+      Indice 7-10 (alto): 31.0%
+      Status: [OK] Variabilidade adequada
+
+13.4 Diagnostico e Proximos Passos
+
+  Achado                    Interpretacao                    Acao Recomendada
+  ------------------------  -------------------------------  ----------------------
+  55% de ER negativo        Baseline superestimado           Revisar fator eta
+  Distribuicao assimetrica  Esperado (limite fisico)         Considerar transformacao
+  ER medio "Leve" = -19%    Consumo menor que baseline       Recalibrar baseline
+
+13.5 Checklist de Validacao Academica
+
+  [ ] Schultz (2007): Tabela de % aumento de potencia por nivel de fouling
+  [ ] Schultz (2011): Custo anual de fouling (USS Arleigh Burke ~$56M/ano)
+  [ ] ISO 19030: Metodologia de calculo de performance baseline
+  [ ] Lindholdt (2015): Taxas de crescimento de fouling por tipo de tinta
+  [ ] IMO MEPC: Fatores de emissao de CO2 por tipo de combustivel
+
+13.6 Perguntas-Chave para Refinamento do Modelo
+
+  1. Para calibracao do baseline:
+     "Qual e o consumo especifico (g/kWh) tipico para motores diesel 
+     maritimos de carga em condicoes otimas?"
+
+  2. Para validacao do ER:
+     "Estudos de campo mostram que navios comerciais tem ER medio de 
+     quanto apos 1 ano sem limpeza?"
+
+  3. Para impacto economico:
+     "O custo de USD 500/ton de combustivel e realista para bunker atual?"
+
+  4. Para emissoes:
+     "O fator 3.206 kg CO2/kg combustivel e adequado para mistura de 
+     HFO e diesel maritimo?"
+
+
+================================================================================
+                    ARQUIVOS FINAIS DO PROJETO
+================================================================================
+
+  dados-transpetro/
+  |-- script.py                        # Script principal (modificado)
+  |-- requirements.txt                 # Dependencias Python
+  |-- ResultadoQueryEventos.csv        # Dados de entrada (eventos)
+  |-- ResultadoQueryConsumo.csv        # Dados de entrada (consumo)
+  |-- Dados navios Hackathon.xlsx      # Dados de entrada (docagens + tinta)
+  |-- biofouling_report.csv            # Relatorio detalhado por evento
+  |-- biofouling_summary_by_ship.csv   # Resumo agregado por navio
+  |-- modelo_final_v13.pkl             # Modelo XGBoost treinado
+  |-- encoder_final_v13.pkl            # LabelEncoder para tipo de tinta
+  |-- validacao_cientifica.py          # Script de validacao cientifica
+  |-- config_biofouling.json           # Configuracoes do projeto (JSON)
+  |-- RESUMO_BIOFOULING.md             # Este documento (Markdown)
+  |-- RESUMO_BIOFOULING.txt            # Este documento (TXT)
+
+
+================================================================================
+Documento atualizado em 29/11/2025
+================================================================================
