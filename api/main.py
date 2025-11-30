@@ -16,7 +16,15 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .schemas import HealthCheck, ModelInfo, FeatureImportance
 from .services import get_biofouling_service, get_data_service
-from .routes import predictions_router, ships_router, reports_router
+from .integration_service import get_orchestrator
+from .routes import (
+    predictions_router,
+    ships_router,
+    reports_router,
+    operational_router,
+)
+from .routes.integrations import router as integrations_router
+from .ocean_cache import ocean_cache
 
 # =============================================================================
 # LOGGING SETUP
@@ -43,6 +51,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info("=" * 60)
     
+    # Initialize database
+    try:
+        from .database import ensure_db_initialized
+        ensure_db_initialized()
+        logger.info("✅ Database initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Database initialization failed: {e}")
+    
     # Pre-load services
     biofouling_service = get_biofouling_service()
     data_service = get_data_service()
@@ -51,6 +67,12 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Model loaded successfully")
     else:
         logger.warning("⚠️ Model not loaded - predictions will be unavailable")
+    
+    # Initialize service orchestrator (external APIs)
+    orchestrator = get_orchestrator()
+    await orchestrator.initialize()
+    logger.info("✅ Service orchestrator initialized")
+    ocean_cache.start()
     
     logger.info(f"📂 Data directory: {settings.DATA_RAW_DIR}")
     logger.info(f"🧠 Models directory: {settings.MODELS_DIR}")
@@ -62,6 +84,8 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down application...")
+    await ocean_cache.stop()
+    await orchestrator.shutdown()
 
 
 # =============================================================================
@@ -115,6 +139,8 @@ async def log_requests(request: Request, call_next):
 app.include_router(predictions_router, prefix="/api/v1")
 app.include_router(ships_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
+app.include_router(integrations_router, prefix="/api/v1")
+app.include_router(operational_router)
 
 
 # =============================================================================

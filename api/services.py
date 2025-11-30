@@ -395,17 +395,114 @@ class DataService:
         return pd.DataFrame()
     
     def get_biofouling_report(self) -> pd.DataFrame:
-        """Load the processed biofouling report."""
+        """Load the processed biofouling report from CSV or database."""
+        # Try CSV first
         path = settings.DATA_PROCESSED_DIR / "biofouling_report.csv"
         if path.exists():
-            return pd.read_csv(path)
+            try:
+                df = pd.read_csv(path)
+                if not df.empty:
+                    return df
+            except Exception as e:
+                logger.warning(f"Error loading CSV report: {e}")
+        
+        # Try database as fallback
+        try:
+            from .database import get_db_session, ReportRecord
+            db = get_db_session()
+            try:
+                records = db.query(ReportRecord).all()
+                if records:
+                    data = []
+                    for record in records:
+                        data.append({
+                            'shipName': record.ship_name,
+                            'sessionId': record.session_id or '',
+                            'startGMTDate': record.event_date,
+                            'CONSUMED_QUANTITY': record.consumption,
+                            'baseline_consumption': record.baseline_consumption,
+                            'target_excess_ratio': record.excess_ratio,
+                            'bio_index_0_10': record.bio_index,
+                            'bio_class': record.bio_class,
+                            'additional_fuel_tons': record.additional_fuel_tons,
+                            'additional_cost_usd': record.additional_cost_usd,
+                            'additional_co2_tons': record.additional_co2_tons,
+                        })
+                    df = pd.DataFrame(data)
+                    logger.info(f"Loaded {len(df)} records from database")
+                    return df
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Error loading from database: {e}")
+        
         return pd.DataFrame()
     
     def get_ship_summary(self) -> pd.DataFrame:
-        """Load the ship summary report."""
+        """Load the ship summary report from CSV or database."""
+        # Try CSV first
         path = settings.DATA_PROCESSED_DIR / "biofouling_summary_by_ship.csv"
+        logger.info(f"Attempting to load summary from: {path.absolute()}")
         if path.exists():
-            return pd.read_csv(path)
+            try:
+                df = pd.read_csv(path)
+                logger.info(f"Loaded summary CSV. Shape: {df.shape}")
+                if not df.empty:
+                    return df
+            except Exception as e:
+                logger.error(f"Error loading CSV summary from {path}: {e}")
+        else:
+            logger.warning(f"Summary CSV not found at: {path.absolute()}")
+        
+        # Generate summary from database records
+        try:
+            from .database import get_db_session, ReportRecord
+            db = get_db_session()
+            try:
+                records = db.query(ReportRecord).all()
+                if records:
+                    # Convert to DataFrame
+                    data = []
+                    for record in records:
+                        data.append({
+                            'shipName': record.ship_name,
+                            'bio_index_0_10': record.bio_index,
+                            'target_excess_ratio': record.excess_ratio,
+                            'CONSUMED_QUANTITY': record.consumption,
+                            'baseline_consumption': record.baseline_consumption,
+                        })
+                    
+                    df_records = pd.DataFrame(data)
+                    
+                    # Aggregate by ship
+                    if not df_records.empty and 'shipName' in df_records.columns:
+                        summary = df_records.groupby('shipName').agg({
+                            'bio_index_0_10': ['mean', 'max'],
+                            'target_excess_ratio': ['mean', 'max'],
+                            'CONSUMED_QUANTITY': 'sum',
+                            'baseline_consumption': 'sum',
+                        }).reset_index()
+                        
+                        # Flatten column names
+                        summary.columns = ['shipName', 'avg_bio_index', 'max_bio_index', 
+                                         'avg_excess_ratio', 'max_excess_ratio',
+                                         'total_real_fuel', 'total_baseline_fuel']
+                        
+                        # Calculate additional metrics
+                        summary['total_additional_fuel'] = summary['total_real_fuel'] - summary['total_baseline_fuel']
+                        summary['num_events'] = df_records.groupby('shipName').size().values
+                        
+                        # Add cost estimates if available
+                        if 'additional_cost_usd' in df_records.columns:
+                            summary['total_additional_cost_usd'] = df_records.groupby('shipName')['additional_cost_usd'].sum().values
+                        
+                        logger.info(f"Generated summary for {len(summary)} ships from database")
+                        return summary
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Error generating summary from database: {e}")
+        
         return pd.DataFrame()
 
 
