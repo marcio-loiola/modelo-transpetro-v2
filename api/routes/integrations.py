@@ -101,8 +101,34 @@ async def check_integrations_health():
     Returns:
         Status of each configured external API
     """
-    orchestrator = get_orchestrator()
-    return orchestrator.get_health_status()
+    try:
+        orchestrator = get_orchestrator()
+        if orchestrator._initialized:
+            return orchestrator.get_health_status()
+        else:
+            # Return basic status if not initialized
+            return {
+                "status": "uninitialized",
+                "message": "Service orchestrator not initialized",
+                "services": {
+                    "external_apis": {
+                        "weather": False,
+                        "vessel_tracking": False,
+                        "fuel_prices": False,
+                        "maintenance": False,
+                        "emissions": False
+                    }
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error getting integrations health: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "services": {
+                "external_apis": {}
+            }
+        }
 
 
 @router.post(
